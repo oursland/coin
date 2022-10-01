@@ -126,6 +126,12 @@ COIN_DLL_API void * cc_glglue_getprocaddress(const cc_glglue * glue, const char 
    through any software indirection layer over GLX). */
 COIN_DLL_API SbBool cc_glglue_isdirect(const cc_glglue * w);
 
+/*
+   Returns TRUE if the underlying OpenGL supports the compatibility
+   profile.
+*/
+COIN_DLL_API SbBool cc_glglue_glprofile_compat(const cc_glglue * glue);
+
 
 /*** Wrapped OpenGL 1.1+ features and extensions. *********************/
 

@@ -470,7 +470,6 @@ glglue_allow_newer_opengl(const cc_glglue * w)
   return TRUE;
 }
 
-
 /* Returns whether or not COIN_GLGLUE_SILENCE_DRIVER_WARNINGS is set
    to a value > 0. If so, all known driver bugs will just be silently
    accepted and attempted worked around. */
@@ -547,6 +546,7 @@ coin_glglue_trident_warning(void)
   /* Note the inversion of the envvar value versus the return value. */
   return (d > 0) ? 0 : 1;
 }
+
 
 /* Return value of COIN_DEBUG_GLGLUE environment variable. */
 int
@@ -760,7 +760,6 @@ cc_glglue_glversion(const cc_glglue * w,
     *release = w->version.release;
   }
 }
-
 
 SbBool
 cc_glglue_glversion_matches_at_least(const cc_glglue * w,
@@ -2587,6 +2586,74 @@ cc_glglue_isdirect(const cc_glglue * w)
   return w->glx.isdirect;
 }
 
+static SbBool
+glglue_detect_profile_compat(const cc_glglue * glue)
+{
+  unsigned int major, minor, release;
+  cc_glglue_glversion(glue, &major, &minor, &release);
+
+  if (major < 2 || (major == 2 && minor <= 1)) {
+    return TRUE;
+  }
+
+  if (major == 3 && minor == 0) {
+    GLint flags;
+    glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+    return (flags & GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT) == 0;
+  }
+
+  if (major == 3 && minor == 1) {
+    if (glue->glGetStringi != NULL) {
+      GLint extensionsNum = 0;
+      glGetIntegerv(GL_NUM_EXTENSIONS, &extensionsNum);
+      for (GLint i = 0; i < extensionsNum; ++i) {
+        const auto extensionName =
+          reinterpret_cast<const char *>(glue->glGetStringi(GL_EXTENSIONS, i));
+        if (extensionName &&
+            strcmp(extensionName, "GL_ARB_compatibility") == 0) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }
+    if (glue->extensionsstr != NULL) {
+      return strstr(glue->extensionsstr, "GL_ARB_compatibility") != NULL;
+    }
+    return FALSE;
+  }
+
+  GLint profile;
+  glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profile);
+
+#if COIN_DEBUG
+  cc_string str;
+  cc_string_construct(&str);
+  const unsigned int errs = coin_catch_gl_errors(&str);
+  if (errs > 0) {
+    cc_debugerror_postinfo("cc_glglue_glprofile_compat",
+          "glGetError()s => '%s'", cc_string_get_text(&str));
+    cc_string_clean(&str);
+    return FALSE;
+  }
+  cc_string_clean(&str);
+#endif // COIN_DEBUG
+
+  return (profile & GL_CONTEXT_CORE_PROFILE_BIT) == 0;
+}
+
+/*
+   Returns TRUE if the underlying OpenGL supports the compatibility
+   profile.
+*/
+SbBool cc_glglue_glprofile_compat(const cc_glglue * glue)
+{
+  if (!glue->glprofile_compat_cached) {
+    cc_glglue * mutable_glue = const_cast<cc_glglue *>(glue);
+    mutable_glue->glprofile_is_compat = glglue_detect_profile_compat(glue);
+    mutable_glue->glprofile_compat_cached = TRUE;
+  }
+  return glue->glprofile_is_compat;
+}
 
 /*!
   Whether glPolygonOffset() is available or not: either we're on OpenGL

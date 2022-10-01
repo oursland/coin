@@ -36,6 +36,7 @@
 // *************************************************************************
 
 #include "rendering/SoGL.h"
+#include "Inventor/C/glue/gl.h"
 #include "coindefs.h"
 
 #include <cassert>
@@ -2344,6 +2345,15 @@ sogl_glerror_debugging(void)
     COIN_GLERROR_DEBUGGING = str ? atoi(str) : 0;
   }
   return (COIN_GLERROR_DEBUGGING == 0) ? FALSE : TRUE;
+}
+
+// Used by library code to decide whether or not we have an
+// OpenGL context with compatibility profile enabled.
+SbBool
+sogl_compatibility_profile(const SoState * state)
+{
+  const cc_glglue* glue = sogl_glue_instance(state);
+  return cc_glglue_glprofile_compat(glue);
 }
 
 static int SOGL_AUTOCACHE_REMOTE_MIN = 500000;
