@@ -52,6 +52,9 @@ foreach(_subdir ${SUBDIRS})
 endforeach()
 add_subdirectory(doc)
 
+include_directories(BEFORE SYSTEM ${CMAKE_SOURCE_DIR}/src/glad/include)
+add_subdirectory(glad)
+
 # Adding source groups for IDE's (Visual Studio, XCode, Qt Creator, etc.)
 source_group("Header Files\\Inventor"                            REGULAR_EXPRESSION ".*/include/Inventor/.*[.]h")
 source_group("Header Files\\Inventor\\actions"                   REGULAR_EXPRESSION ".*/include/Inventor/actions/.*[.]h")
