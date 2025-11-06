@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug",
+            "program": "${workspaceFolder}/bld/bin/glfw_coin",
+            "args": [],
+            "cwd": "${workspaceFolder}/examples/glfw",
+            "env": {
+                "LD_LIBRARY_PATH": "${workspaceFolder}/../coin/bld/lib:${LD_LIBRARY_PATH}",
+                "COIN_GLERROR_DEBUGGING": "1"
+            },
+            // "preLaunchTask": "Run build"
+        }
+    ]
+}
