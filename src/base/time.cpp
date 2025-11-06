@@ -44,6 +44,7 @@
 
 #ifdef HAVE_TIME_H
 #include <ctime>
+#include <time.h>
 #endif /* HAVE_TIME_H */
 
 /* On Mac OS X / Darwin, timeb.h uses time_t from time.h, so the order
