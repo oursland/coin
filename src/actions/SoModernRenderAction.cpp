@@ -57,7 +57,6 @@ SoModernRenderAction::initClass(void)
 
   SO_ACTION_ADD_METHOD_INTERNAL(SoNode, SoModernRenderAction::renderNode);
   SO_ACTION_ADD_METHOD_INTERNAL(SoShape, SoModernRenderAction::renderShape);
-  SO_ACTION_ADD_METHOD_INTERNAL(SoShaderProgram, SoModernRenderAction::renderShaderProgram);
 
   SO_ENABLE(SoModernRenderAction, SoViewportRegionElement);
   SO_ENABLE(SoModernRenderAction, SoOverrideElement);
@@ -142,6 +141,12 @@ SoModernRenderAction::endTraversal(SoNode * node)
 void
 SoModernRenderAction::renderNode(SoAction * a, SoNode * node)
 {
+  // Special case shader programs so they can populate SoGLShaderProgramElement
+  if (node->isOfType(SoShaderProgram::getClassTypeId())) {
+    SoModernRenderAction * action = static_cast<SoModernRenderAction *>(a);
+    static_cast<SoShaderProgram *>(node)->render(action);
+    return;
+  }
   node->doAction(a);
 }
 
@@ -153,16 +158,7 @@ SoModernRenderAction::renderShape(SoAction * a, SoNode * node)
   shape->render(action);
 }
 
-void
-SoModernRenderAction::renderShaderProgram(SoAction * a, SoNode * node)
-{
-  SoModernRenderAction * action = static_cast<SoModernRenderAction *>(a);
-  SoShaderProgram * shader = static_cast<SoShaderProgram *>(node);
-  SoState * state = action->getState();
-  if (!state || !shader) return;
-
-  shader->render(action);
-}
+// Shader programs are handled in renderNode() without explicit registration.
 
 void
 SoModernRenderAction::pushPrimitiveCollector(PrimitiveCollector * collector)
