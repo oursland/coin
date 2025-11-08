@@ -125,3 +125,22 @@ SoProjectionMatrixElement::init(SoState * state)
   inherited::init(state);
   this->projectionMatrix.makeIdentity();
 }
+
+void
+SoProjectionMatrixElement::push(SoState * stateptr)
+{
+  inherited::push(stateptr);
+  SoProjectionMatrixElement * prev = (SoProjectionMatrixElement*)this->getNextInStack();
+
+  this->projectionMatrix = prev->projectionMatrix;
+}
+
+//! FIXME: write doc.
+
+void
+SoProjectionMatrixElement::pop(SoState * COIN_UNUSED_ARG(state),
+                                 const SoElement * prevTopElement)
+{
+  inherited::pop(state, prevTopElement);
+  SoProjectionMatrixElement * prev = (SoProjectionMatrixElement*)prevTopElement;
+}

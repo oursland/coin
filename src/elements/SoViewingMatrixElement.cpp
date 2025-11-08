@@ -95,7 +95,8 @@ SoViewingMatrixElement::get(SoState * const state)
   const SoViewingMatrixElement * element =
     coin_assert_cast<const SoViewingMatrixElement *>
     (
-     SoElement::getConstElement(state, classStackIndex)
+     //SoElement::getConstElement(state, classStackIndex)
+     SoReplacedElement::getElement(state, classStackIndex, NULL)
      );
   return element->viewingMatrix;
 }
@@ -114,6 +115,27 @@ SoViewingMatrixElement::init(SoState * state)
   SoDebugError::postInfo("SoViewingMatrixElement::init",
                          "matrix set to identity");
 #endif // debug
+}
+
+void
+SoViewingMatrixElement::push(SoState * stateptr)
+{
+  inherited::push(stateptr);
+  SoViewingMatrixElement * prev = (SoViewingMatrixElement*)this->getNextInStack();
+
+  this->viewingMatrix = prev->viewingMatrix;
+
+  //prev->capture(state);
+}
+
+//! FIXME: write doc.
+
+void
+SoViewingMatrixElement::pop(SoState * COIN_UNUSED_ARG(state),
+                                 const SoElement * prevTopElement)
+{
+  inherited::pop(state, prevTopElement);
+  SoViewingMatrixElement * prev = (SoViewingMatrixElement*)prevTopElement;
 }
 
 //! FIXME: write doc.

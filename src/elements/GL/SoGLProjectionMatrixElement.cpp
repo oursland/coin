@@ -71,6 +71,22 @@ SoGLProjectionMatrixElement::~SoGLProjectionMatrixElement(void)
 {
 }
 
+// doc in parent
+void
+SoGLProjectionMatrixElement::init(SoState * stateptr)
+{
+  inherited::init(stateptr);
+  this->state = stateptr;
+}
+
+// doc in parent
+void
+SoGLProjectionMatrixElement::push(SoState * stateptr)
+{
+  inherited::push(stateptr);
+  this->state = stateptr;
+}
+
 //! FIXME: write doc.
 
 void

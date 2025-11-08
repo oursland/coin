@@ -45,6 +45,9 @@ protected:
   virtual ~SoGLProjectionMatrixElement();
 
 public:
+  virtual void init(SoState * state);
+
+  virtual void push(SoState * state);
   virtual void pop(SoState * state,
                    const SoElement * prevTopElement);
 
@@ -52,6 +55,7 @@ protected:
   virtual void setElt(const SbMatrix & matrix);
 
 private:
+  SoState * state;
   void updategl();
 };
 

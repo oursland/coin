@@ -52,6 +52,10 @@ public:
                   const SbMatrix & matrix);
   static const SbMatrix &get(SoState * const state);
 
+  virtual void push(SoState * state);
+  virtual void pop(SoState * state,
+                   const SoElement * prevTopElement);
+
 protected:
   SbMatrix projectionMatrix;
   virtual void setElt(SbMatrix const & matrix);

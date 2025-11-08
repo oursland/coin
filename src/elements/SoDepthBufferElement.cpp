@@ -129,7 +129,9 @@ SoDepthBufferElement::set(SoState * state,
   SoDepthBufferElement * elem =
     static_cast<SoDepthBufferElement *>(SoElement::getElement(state, classStackIndex));
 
-  elem->setElt(test, write, function, range);
+  if (elem) {
+    elem->setElt(test, write, function, range);
+  }
 }
 
 /*!

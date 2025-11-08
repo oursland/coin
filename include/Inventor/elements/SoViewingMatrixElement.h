@@ -51,6 +51,10 @@ public:
                    const SbMatrix & ViewingMatrix);
   static  const SbMatrix &get(SoState * const state);
 
+  virtual void push(SoState * state);
+  virtual void pop(SoState * state,
+                   const SoElement * prevTopElement);
+
 protected:
   virtual void setElt(const SbMatrix &matrix);
   SbMatrix viewingMatrix;
