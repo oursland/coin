@@ -158,24 +158,32 @@
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/actions/SoGetPrimitiveCountAction.h>
 #include <Inventor/actions/SoRayPickAction.h>
+#include <Inventor/fields/SoSFString.h>
 #include <Inventor/elements/SoModelMatrixElement.h>
 #include <Inventor/elements/SoMultiTextureImageElement.h>
+#include <Inventor/elements/SoShapeStyleElement.h>
 #include <Inventor/elements/SoViewVolumeElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
+#include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoGLLazyElement.h>
+#include <Inventor/elements/SoTextureQualityElement.h>
 #include <Inventor/errors/SoDebugError.h>
 #include <Inventor/errors/SoReadError.h>
 #include <Inventor/lists/SbStringList.h>
+#include <Inventor/misc/SoGLImage.h>
 #include <Inventor/misc/SoState.h>
+#include <Inventor/nodes/SoShaderProgram.h>
+#include <Inventor/nodes/SoVertexShader.h>
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/system/gl.h>
-
+#include <Inventor/threads/SbMutex.h>
 #include "nodes/SoSubNodeP.h"
 #include "rendering/SoGL.h"
 #include "glue/GLUWrapper.h"
 #include "glue/simage_wrapper.h"
-
+#include "misc/SoShaderGenerator.h"
+#include "shaders/SoShader.h"
 
 /*!
   \enum SoImage::VertAlignment
@@ -247,6 +255,31 @@
 
 // *************************************************************************
 
+class SoImageP {
+public:
+  SoGLImage * glimage;
+  SbBool glimagevalid;
+  SoShaderProgram * program;
+  static SbMutex * mutex;
+
+  static void cleanup(void) {
+    delete SoImageP::mutex;
+    SoImageP::mutex = NULL;
+  }
+};
+
+#define PRIVATE(p) ((p)->pimpl)
+
+#ifdef COIN_THREADSAFE
+#define LOCK_GLIMAGE(_thisp_) (PRIVATE(_thisp_)->mutex->lock())
+#define UNLOCK_GLIMAGE(_thisp_) (PRIVATE(_thisp_)->mutex->unlock())
+#else // COIN_THREADSAFE
+#define LOCK_GLIMAGE(_thisp_)
+#define UNLOCK_GLIMAGE(_thisp_)
+#endif // COIN_THREADSAFE
+
+// *************************************************************************
+
 SO_NODE_SOURCE(SoImage);
 
 /*!
@@ -254,8 +287,9 @@ SO_NODE_SOURCE(SoImage);
 */
 SoImage::SoImage(void)
 {
-  SO_NODE_INTERNAL_CONSTRUCTOR(SoImage);
+  PRIVATE(this) = new SoImageP;
 
+  SO_NODE_INTERNAL_CONSTRUCTOR(SoImage);
 
   SO_NODE_ADD_FIELD(width, (-1));
   SO_NODE_ADD_FIELD(height, (-1));
@@ -274,6 +308,9 @@ SoImage::SoImage(void)
   SO_NODE_DEFINE_ENUM_VALUE(HorAlignment, CENTER);
   SO_NODE_DEFINE_ENUM_VALUE(HorAlignment, RIGHT);
   SO_NODE_SET_SF_ENUM_TYPE(horAlignment, HorAlignment);
+
+  PRIVATE(this)->glimage = NULL;
+  PRIVATE(this)->glimagevalid = FALSE;
 
   this->readstatus = TRUE;
   this->transparency = FALSE;
@@ -294,6 +331,8 @@ SoImage::SoImage(void)
 */
 SoImage::~SoImage()
 {
+  if (PRIVATE(this)->program) PRIVATE(this)->program->unref();
+  if (PRIVATE(this)->glimage) PRIVATE(this)->glimage->unref(NULL);
   delete this->resizedimage;
   delete this->filenamesensor;
 }
@@ -305,6 +344,33 @@ void
 SoImage::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoImage, SO_FROM_INVENTOR_2_5|SO_FROM_COIN_1_0);
+}
+
+SoShaderProgram * SoImage::createShader()
+{
+  auto program = new SoShaderProgram();
+  program->ref();
+
+  // Vertex shader
+  SoShaderGenerator vgen;
+  vgen.reset(FALSE);
+  vgen.setVersion("#version 120");
+  //vgen.addDeclaration("varying vec3 light_vec;", FALSE);
+  vgen.addMainStatement("gl_Position = ftransform();");
+
+  SoVertexShader * vshader = new SoVertexShader;
+  vshader->sourceProgram = vgen.getShaderProgram();
+  vshader->sourceType= SoShaderObject::GLSL_PROGRAM;
+
+  //SoShader::getNamedScript(SbName("images/Image"), SoShader::GLSL_SHADER)
+
+  // Fragment shader
+  SoShaderGenerator fgen;
+
+  program->shaderObject.set1Value(0, vshader);
+  //program->shaderObject.set1Value(0, fshader);
+
+  return program;
 }
 
 // doc from parent
@@ -331,6 +397,58 @@ SoImage::computeBBox(SoAction * action,
 // doc from parent
 void
 SoImage::GLRender(SoGLRenderAction * action)
+{
+  SoState *state = action->getState();
+
+  if (SoRenderer::isOpenGL()) {
+    if (sogl_compatibility_profile(state)) {
+      GLRenderCompat(action);
+      return;
+    }
+
+    SbVec2s size, orgsize;
+    int nc;
+    size = this->getSize();
+    if (size == SbVec2s(0,0)) return;
+
+    const unsigned char * dataptr = this->image.getValue(orgsize, nc);
+    if (dataptr == NULL) return; // no image
+
+    SoShapeStyleElement::setVertexArrayRendering(state, true);
+    if (!this->shouldGLRender(action)) return;
+
+    LOCK_GLIMAGE(this);
+
+    if (!PRIVATE(this)->glimagevalid) {
+      if (PRIVATE(this)->glimage) PRIVATE(this)->glimage->unref(state);
+      PRIVATE(this)->glimage = new SoGLImage();
+
+      float quality = SoTextureQualityElement::get(state);
+      PRIVATE(this)->glimage->setData(dataptr, size, nc,
+                              SoGLImage::CLAMP,
+                              SoGLImage::CLAMP,
+                              quality, 0, state);
+
+      PRIVATE(this)->glimagevalid = TRUE;
+
+      // don't cache while creating a texture object
+      SoCacheElement::setInvalid(TRUE);
+      if (state->isCacheOpen()) {
+        SoCacheElement::invalidate(state);
+      }
+
+      UNLOCK_GLIMAGE(this);
+
+      PRIVATE(this)->program->GLRender(action);
+
+      SoShape::GLRender(action);
+    }
+  }
+}
+
+// doc from parent
+void
+SoImage::GLRenderCompat(SoGLRenderAction * action)
 {
   SbVec2s size, orgsize;
   int nc;

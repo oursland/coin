@@ -33,6 +33,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 \**************************************************************************/
 
+#include "Inventor/nodes/SoShaderProgram.h"
 #include <Inventor/nodes/SoSubNode.h>
 #include <Inventor/nodes/SoShape.h>
 #include <Inventor/fields/SoSFInt32.h>
@@ -43,6 +44,7 @@
 class SoSensor;
 class SoFieldSensor;
 class SbImage;
+class SoImageP;
 
 class COIN_DLL_API SoImage : public SoShape {
   typedef SoShape inherited;
@@ -73,12 +75,15 @@ public:
   SoSFString filename;
 
   virtual void GLRender(SoGLRenderAction * action);
+  virtual void GLRenderCompat(SoGLRenderAction * action);
+
   virtual void rayPick(SoRayPickAction * action);
   virtual void getPrimitiveCount(SoGetPrimitiveCountAction * action);
 
 protected:
   virtual ~SoImage();
 
+  virtual SoShaderProgram * createShader();
   virtual void generatePrimitives(SoAction * action);
   virtual void computeBBox(SoAction * action, SbBox3f & box, SbVec3f & center);
 
@@ -101,6 +106,8 @@ private:
   class SoFieldSensor * filenamesensor;
   SbBool transparency;
   SbBool testtransparency;
+  SoImageP * pimpl;
+
   void testTransparency(void);
   static void filenameSensorCB(void *, SoSensor *);
 };
