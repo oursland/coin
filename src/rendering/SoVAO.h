@@ -1,5 +1,5 @@
-#ifndef COIN_VBO_H
-#define COIN_VBO_H
+#ifndef COIN_VAO_H
+#define COIN_VAO_H
 
 /**************************************************************************\
  * Copyright (c) Kongsberg Oil & Gas Technologies AS
@@ -41,54 +41,23 @@
 #include <Inventor/system/gl.h>
 #include <Inventor/C/glue/gl.h>
 
-#include "misc/SbHash.h"
-#include "rendering/SoVertexLayout.h"
-
 class SoState;
+class SoGLRenderAction;
 
-class SoVBO {
- public:
-  SoVBO(const GLenum target = GL_ARRAY_BUFFER,
-        const GLenum usage = GL_STATIC_DRAW);
-  ~SoVBO();
+struct SoVAO
+{
+  SoVAO();
+  ~SoVAO();
 
-  static void init(void);
+  /// Binds the VAO.
+  void bind(uint32_t contextid);
 
-  void setVertexLayout(const SoVertexLayout& layout);
-  SoVertexLayout& getVertexLayout();
+  /// Unbinds the VAO.
+  void unbind(uint32_t contextid);
 
-  void setBufferData(const GLvoid * data, intptr_t size, SbUniqueId dataid = 0);
-  void * allocBufferData(intptr_t size, SbUniqueId dataid = 0);
-  SbUniqueId getBufferDataId(void) const;
-  void getBufferData(const GLvoid *& data, intptr_t & size);
-  void bindBuffer(uint32_t contextid, uint8_t stream = 0);
+private:
 
-  static void setVertexCountLimits(const int minlimit, const int maxlimit);
-  static int getVertexCountMinLimit(void);
-  static int getVertexCountMaxLimit(void);
-
-  static void testGLPerformance(const uint32_t contextid);
-  static SbBool shouldCreateVBO(SoState * state, const uint32_t contextid, const int numdata);
-  static SbBool shouldRenderAsVertexArrays(SoState * statea,
-                                           const uint32_t contextid,
-                                           const int numdata);
-
- private:
-  static void context_created(const uint32_t contextid, void * closure);
-  static SbBool isVBOFast(const uint32_t contextid);
-  static void context_destruction_cb(uint32_t context, void * userdata);
-  friend struct vbo_schedule;
-  static void vbo_delete(void * closure, uint32_t contextid);
-
-  GLenum target;
-  GLenum usage;
-  const GLvoid * data;
-  intptr_t datasize;
-  SbUniqueId dataid;
-  SbBool didalloc;
-  SoVertexLayout vertexlayout;
-
-  SbHash<uint32_t, GLuint> vbohash;
+  GLuint id;
 };
 
-#endif // COIN_VERTEXARRAYINDEXER_H
+#endif // COIN_VAO_H

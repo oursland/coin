@@ -83,6 +83,7 @@
 #include "misc/SbHash.h"
 #include "rendering/SoGL.h"
 #include "rendering/SoVBO.h"
+#include "rendering/SoVAO.h"
 #include "rendering/SoVertexArrayIndexer.h"
 #include "SbBasicP.h"
 
@@ -102,6 +103,7 @@ public:
       triangleindexer(NULL),
       lineindexer(NULL),
       pointindexer(NULL),
+      vao(NULL),
       vertexvbo(NULL),
       normalvbo(NULL),
       texcoord0vbo(NULL),
@@ -126,6 +128,7 @@ public:
       delete[] multitexcoords;
     }
     delete[] deptharray;
+    delete vao;
   }
 
   class Vertex {
@@ -180,6 +183,9 @@ public:
   SoVertexArrayIndexer * triangleindexer;
   SoVertexArrayIndexer * lineindexer;
   SoVertexArrayIndexer * pointindexer;
+
+  SoVAO * vao;
+
   SoVBO * vertexvbo;
   SoVBO * normalvbo;
   SoVBO * texcoord0vbo;
@@ -1050,26 +1056,55 @@ SoPrimitiveVertexCacheP::enableVBOs(const SoState * state,
                                     const int lastenabled)
 {
   const cc_glglue * glue = sogl_glue_instance(state);
+
+  if (!sogl_compatibility_profile(state)) {
+    if (this->vao == NULL) {
+      this->vao = new SoVAO;
+      this->vao->bind(contextid);
+    } else {
+      this->vao->bind(contextid);
+      return;
+    }
+  }
+
   int i;
   if (color) {
     if (this->rgbavbo == NULL) {
       this->rgbavbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::Color0, 4, SoAttribType::Uint8).end();
+      this->rgbavbo->setVertexLayout(layout);
       this->rgbavbo->setBufferData(this->rgbalist.getArrayPtr(),
                                    this->rgbalist.getLength() * sizeof(uint8_t));
     }
     this->rgbavbo->bindBuffer(contextid);
-    cc_glglue_glColorPointer(glue, 4, GL_UNSIGNED_BYTE, 0, NULL);
-    cc_glglue_glEnableClientState(glue, GL_COLOR_ARRAY);
+    if (SoRenderer::isOpenGL()) {
+      if (cc_glglue_glprofile_compat(glue)) {
+        cc_glglue_glColorPointer(glue, 4, GL_UNSIGNED_BYTE, 0, NULL);
+        cc_glglue_glEnableClientState(glue, GL_COLOR_ARRAY);
+      } else {
+        this->rgbavbo->getVertexLayout().bindAttributes(state);
+      }
+    }
   }
   if (texture) {
     if (this->texcoord0vbo == NULL) {
       this->texcoord0vbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::TexCoord0, 4, SoAttribType::Float).end();
+      this->texcoord0vbo->setVertexLayout(layout);
       this->texcoord0vbo->setBufferData(this->texcoordlist.getArrayPtr(),
                                         this->texcoordlist.getLength()*4*sizeof(float));
     }
     this->texcoord0vbo->bindBuffer(contextid);
-    cc_glglue_glTexCoordPointer(glue, 4, GL_FLOAT, 0, NULL);
-    cc_glglue_glEnableClientState(glue, GL_TEXTURE_COORD_ARRAY);
+    if (SoRenderer::isOpenGL()) {
+      if (cc_glglue_glprofile_compat(glue)) {
+        cc_glglue_glTexCoordPointer(glue, 4, GL_FLOAT, 0, NULL);
+        cc_glglue_glEnableClientState(glue, GL_TEXTURE_COORD_ARRAY);
+      } else {
+        this->texcoord0vbo->getVertexLayout().bindAttributes(state);
+      }
+    }
 
     for (i = 1; i <= lastenabled; i++) {
       while (this->multitexvbo.getLength() <= i) {
@@ -1077,37 +1112,66 @@ SoPrimitiveVertexCacheP::enableVBOs(const SoState * state,
       }
       if (enabled[i]) {
         if (this->multitexvbo[i] == NULL) {
-          SoVBO * vbo = new SoVBO;
+          SoVBO* vbo = new SoVBO;
+          SoVertexLayout layout;
+          auto attrib = (SoAttrib::Enum)((int)SoAttrib::TexCoord0 + i);
+          layout.begin().add(attrib, 4, SoAttribType::Float).end();
+          vbo->setVertexLayout(layout);
           vbo->setBufferData(this->multitexcoords[i].getArrayPtr(),
                              this->multitexcoords[i].getLength()*4*sizeof(float));
           this->multitexvbo[i] = vbo;
         }
         this->multitexvbo[i]->bindBuffer(contextid);
-        cc_glglue_glClientActiveTexture(glue, GL_TEXTURE0 + i);
-        cc_glglue_glTexCoordPointer(glue, 4, GL_FLOAT, 0, NULL);
-        cc_glglue_glEnableClientState(glue, GL_TEXTURE_COORD_ARRAY);
+        if (SoRenderer::isOpenGL()) {
+          if (cc_glglue_glprofile_compat(glue)) {
+              cc_glglue_glClientActiveTexture(glue, GL_TEXTURE0 + i);
+              cc_glglue_glTexCoordPointer(glue, 4, GL_FLOAT, 0, NULL);
+              cc_glglue_glEnableClientState(glue, GL_TEXTURE_COORD_ARRAY);
+          } else {
+            this->multitexvbo[i]->getVertexLayout().bindAttributes(state);
+          }
+      }
       }
     }
   }
   if (normal) {
     if (this->normalvbo == NULL) {
       this->normalvbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::Normal, 3, SoAttribType::Float).end();
+      this->normalvbo->setVertexLayout(layout);
       this->normalvbo->setBufferData(this->normallist.getArrayPtr(),
                                      this->normallist.getLength()*3*sizeof(float));
     }
-    this->normalvbo->bindBuffer(contextid);
-    cc_glglue_glNormalPointer(glue, GL_FLOAT, 0, NULL);
-    cc_glglue_glEnableClientState(glue, GL_NORMAL_ARRAY);
+  if (SoRenderer::isOpenGL()) {
+      if (cc_glglue_glprofile_compat(glue)) {
+        this->normalvbo->bindBuffer(contextid);
+        cc_glglue_glNormalPointer(glue, GL_FLOAT, 0, NULL);
+        cc_glglue_glEnableClientState(glue, GL_NORMAL_ARRAY);
+      } else {
+        this->normalvbo->getVertexLayout().bindAttributes(state);
+      }
+    }
   }
 
   if (this->vertexvbo == NULL) {
     this->vertexvbo = new SoVBO;
+    SoVertexLayout layout;
+    layout.begin().add(SoAttrib::Position, 3, SoAttribType::Float).end();
+    this->vertexvbo->setVertexLayout(layout);
     this->vertexvbo->setBufferData(this->vertexlist.getArrayPtr(),
                                    this->vertexlist.getLength()*3*sizeof(float));
   }
   this->vertexvbo->bindBuffer(contextid);
-  cc_glglue_glVertexPointer(glue, 3, GL_FLOAT, 0, NULL);
-  cc_glglue_glEnableClientState(glue, GL_VERTEX_ARRAY);
+  if (SoRenderer::isOpenGL()) {
+    const cc_glglue * glue = sogl_glue_instance(state);
+    if (cc_glglue_glprofile_compat(glue)) {
+      cc_glglue_glVertexPointer(glue, 3, GL_FLOAT, 0, NULL);
+      cc_glglue_glEnableClientState(glue, GL_VERTEX_ARRAY);
+    } else {
+      this->vertexvbo->getVertexLayout().bindAttributes(state);
+    }
+  }
 }
 
 void
@@ -1126,7 +1190,28 @@ SoPrimitiveVertexCacheP::disableVBOs(const SoState * state,
     else
 #endif
     {
+      if (this->vao) {
+        this->vao->unbind(0);
+      } else {
+        int i;
+        if (color) {
+              this->rgbavbo->getVertexLayout().unbindAttributes(state);
+        }
+        if (texture) {
+          this->texcoord0vbo->getVertexLayout().unbindAttributes(state);
+          for (i = 1; i <= lastenabled; i++) {
+            if (enabled[i]) {
+              this->multitexvbo[i]->getVertexLayout().unbindAttributes(state);
+            }
+          }
+        }
+        if (normal) {
+          this->normalvbo->getVertexLayout().unbindAttributes(state);
+        }
+        this->vertexvbo->getVertexLayout().unbindAttributes(state);
 
+        glBindBuffer(GL_ARRAY_BUFFER, 0); // Reset VBO binding
+      }
     }
   }
 }

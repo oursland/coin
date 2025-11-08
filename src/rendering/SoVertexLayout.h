@@ -1,5 +1,5 @@
-#ifndef COIN_VBO_H
-#define COIN_VBO_H
+#ifndef COIN_VERTEXLAYOUT_H
+#define COIN_VERTEXLAYOUT_H
 
 /**************************************************************************\
  * Copyright (c) Kongsberg Oil & Gas Technologies AS
@@ -42,53 +42,95 @@
 #include <Inventor/C/glue/gl.h>
 
 #include "misc/SbHash.h"
-#include "rendering/SoVertexLayout.h"
 
 class SoState;
 
-class SoVBO {
- public:
-  SoVBO(const GLenum target = GL_ARRAY_BUFFER,
-        const GLenum usage = GL_STATIC_DRAW);
-  ~SoVBO();
+/// Vertex attribute enum.
+struct SoAttrib
+{
+  /// Corresponds to vertex shader attribute.
+  enum Enum
+  {
+    Position,
+    Normal,
+    Tangent,
+    Bitangent,
+    Color0,
+    Color1,
+    Color2,
+    Color3,
+    Indices,
+    Weight,
+    TexCoord0,
+    TexCoord1,
+    TexCoord2,
+    TexCoord3,
+    TexCoord4,
+    TexCoord5,
+    TexCoord6,
+    TexCoord7,
 
-  static void init(void);
-
-  void setVertexLayout(const SoVertexLayout& layout);
-  SoVertexLayout& getVertexLayout();
-
-  void setBufferData(const GLvoid * data, intptr_t size, SbUniqueId dataid = 0);
-  void * allocBufferData(intptr_t size, SbUniqueId dataid = 0);
-  SbUniqueId getBufferDataId(void) const;
-  void getBufferData(const GLvoid *& data, intptr_t & size);
-  void bindBuffer(uint32_t contextid, uint8_t stream = 0);
-
-  static void setVertexCountLimits(const int minlimit, const int maxlimit);
-  static int getVertexCountMinLimit(void);
-  static int getVertexCountMaxLimit(void);
-
-  static void testGLPerformance(const uint32_t contextid);
-  static SbBool shouldCreateVBO(SoState * state, const uint32_t contextid, const int numdata);
-  static SbBool shouldRenderAsVertexArrays(SoState * statea,
-                                           const uint32_t contextid,
-                                           const int numdata);
-
- private:
-  static void context_created(const uint32_t contextid, void * closure);
-  static SbBool isVBOFast(const uint32_t contextid);
-  static void context_destruction_cb(uint32_t context, void * userdata);
-  friend struct vbo_schedule;
-  static void vbo_delete(void * closure, uint32_t contextid);
-
-  GLenum target;
-  GLenum usage;
-  const GLvoid * data;
-  intptr_t datasize;
-  SbUniqueId dataid;
-  SbBool didalloc;
-  SoVertexLayout vertexlayout;
-
-  SbHash<uint32_t, GLuint> vbohash;
+    Count
+  };
 };
 
-#endif // COIN_VERTEXARRAYINDEXER_H
+/// Vertex attribute types.
+struct SoAttribType
+{
+  enum Enum
+  {
+    Uint8,
+    Int16,
+    Half,
+    Float,
+
+    Count
+  };
+};
+
+struct SoVertexLayout
+{
+  SoVertexLayout();
+
+  /// Start VertexLayout.
+  SoVertexLayout& begin();
+
+  /// End VertexLayout.
+  void end();
+
+  /// Add attribute to VertexLayout.
+  SoVertexLayout& add(SoAttrib::Enum _attrib, uint8_t _num,
+    SoAttribType::Enum _type, bool _normalized = false, bool _asInt = false);
+
+  /// Decode attribute.
+  void decode(SoAttrib::Enum _attrib, uint8_t& _num,
+    SoAttribType::Enum& _type, bool& _normalized, bool& _asInt) const;
+
+  /// Returns `true` if VertexLayout contains attribute.
+  bool has(SoAttrib::Enum _attrib) const { return UINT16_MAX != attributes[_attrib]; }
+
+  /// Returns relative attribute offset from the vertex.
+  uint16_t getOffset(SoAttrib::Enum _attrib) const { return offset[_attrib]; }
+
+  /// Returns vertex stride.
+  uint16_t getStride() const { return stride; }
+
+  /// Returns size of vertex buffer for number of vertices.
+  uint32_t getSize(uint32_t _num) const { return _num*stride; }
+
+  /// Binds the vertex attributes according to the current shader program.
+  void bindAttributes(const SoState * state);
+
+  /// Unbinds the vertex attributes according to the current shader program.
+  void unbindAttributes(const SoState * state);
+
+  uint32_t hash;
+  uint16_t stride;
+  uint16_t offset[SoAttrib::Count];
+  uint16_t attributes[SoAttrib::Count];
+
+private:
+  uint16_t indexes[SoAttrib::Count];
+};
+
+#endif // COIN_VERTEXLAYOUT_H
