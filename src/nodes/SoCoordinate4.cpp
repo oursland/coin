@@ -120,7 +120,7 @@ SoCoordinate4::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoCoordinate4, SO_FROM_INVENTOR_1);
 
   SO_ENABLE(SoGetBoundingBoxAction, SoCoordinateElement);
-  SO_ENABLE(SoGLRenderAction, SoGLCoordinateElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLCoordinateElement);
   SO_ENABLE(SoPickAction, SoCoordinateElement);
   SO_ENABLE(SoCallbackAction, SoCoordinateElement);
   SO_ENABLE(SoGetPrimitiveCountAction, SoCoordinateElement);

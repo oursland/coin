@@ -114,8 +114,8 @@ SoCoordinate3::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoCoordinate3, SO_FROM_INVENTOR_1|SoNode::VRML1);
 
   SO_ENABLE(SoGetBoundingBoxAction, SoCoordinateElement);
-  SO_ENABLE(SoGLRenderAction, SoGLCoordinateElement);
-  SO_ENABLE(SoGLRenderAction, SoGLVBOElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLCoordinateElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLVBOElement);
   SO_ENABLE(SoPickAction, SoCoordinateElement);
   SO_ENABLE(SoCallbackAction, SoCoordinateElement);
   SO_ENABLE(SoGetPrimitiveCountAction, SoCoordinateElement);

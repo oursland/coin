@@ -125,7 +125,7 @@ SoTransformation::initClass(void)
   SO_ENABLE(SoGetBoundingBoxAction, SoBBoxModelMatrixElement);
   SO_ENABLE(SoGetBoundingBoxAction, SoLocalBBoxMatrixElement);
 
-  SO_ENABLE(SoGLRenderAction, SoGLModelMatrixElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLModelMatrixElement);
 
   SO_ENABLE(SoPickAction, SoModelMatrixElement);
 

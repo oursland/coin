@@ -181,7 +181,8 @@ SoEnvironment::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoEnvironment, SO_FROM_INVENTOR_2_0);
 
-  SO_ENABLE(SoGLRenderAction, SoGLEnvironmentElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLEnvironmentElement);
+
   SO_ENABLE(SoCallbackAction, SoEnvironmentElement);
   SO_ENABLE(SoGLRenderAction, SoLightAttenuationElement);
   SO_ENABLE(SoCallbackAction, SoLightAttenuationElement);

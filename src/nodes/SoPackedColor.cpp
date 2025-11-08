@@ -131,7 +131,7 @@ SoPackedColor::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoPackedColor, SO_FROM_INVENTOR_2_1);
 
   SO_ENABLE(SoCallbackAction, SoLazyElement);
-  SO_ENABLE(SoGLRenderAction, SoGLLazyElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLLazyElement);
 }
 
 // Doc from superclass.

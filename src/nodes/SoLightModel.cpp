@@ -117,7 +117,7 @@ SoLightModel::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoLightModel, SO_FROM_INVENTOR_1);
 
   SO_ENABLE(SoCallbackAction, SoLazyElement);
-  SO_ENABLE(SoGLRenderAction, SoGLLazyElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLLazyElement);
 
   SO_ENABLE(SoCallbackAction, SoLightModelElement);
   SO_ENABLE(SoGLRenderAction, SoLightModelElement);

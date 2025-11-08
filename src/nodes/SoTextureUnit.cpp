@@ -142,10 +142,10 @@ SoTextureUnit::initClass(void)
   SO_ENABLE(SoPickAction, SoTextureUnitElement);
   SO_ENABLE(SoGetBoundingBoxAction, SoTextureUnitElement);
   SO_ENABLE(SoGetMatrixAction, SoTextureUnitElement);
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureCoordinateElement);
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureImageElement);
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureEnabledElement);
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureMatrixElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureCoordinateElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureImageElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureEnabledElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureMatrixElement);
 }
 
 // Doc from superclass.

@@ -129,7 +129,7 @@ SoTexture2Transform::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoTexture2Transform, SO_FROM_INVENTOR_1|SoNode::VRML1);
 
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureMatrixElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureMatrixElement);
   SO_ENABLE(SoCallbackAction, SoMultiTextureMatrixElement);
   SO_ENABLE(SoPickAction, SoMultiTextureMatrixElement);
 }

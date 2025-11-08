@@ -154,6 +154,7 @@
 
 #include "elements/GL/SoResetMatrixElement.h"
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 
 /*!
   \enum SoCamera::ViewportMapping
@@ -381,12 +382,13 @@ SoCamera::initClass(void)
   SO_NODE_INTERNAL_INIT_ABSTRACT_CLASS(SoCamera, SO_FROM_INVENTOR_1);
 
   SO_ENABLE(SoGLRenderAction, SoFocalDistanceElement);
-  SO_ENABLE(SoGLRenderAction, SoGLProjectionMatrixElement);
   SO_ENABLE(SoGLRenderAction, SoViewVolumeElement);
-  SO_ENABLE(SoGLRenderAction, SoGLViewingMatrixElement);
-  SO_ENABLE(SoGLRenderAction, SoResetMatrixElement);
+  // TODO: remove below
+  SO_ENABLE_GL(SoGLRenderAction, SoResetMatrixElement);
   SO_ENABLE(SoGLRenderAction, SoCullElement);
 
+  SO_ENABLE_GL(SoGLRenderAction, SoGLProjectionMatrixElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLViewingMatrixElement);
   SO_ENABLE(SoGetBoundingBoxAction, SoFocalDistanceElement);
   SO_ENABLE(SoGetBoundingBoxAction, SoProjectionMatrixElement);
   SO_ENABLE(SoGetBoundingBoxAction, SoViewVolumeElement);

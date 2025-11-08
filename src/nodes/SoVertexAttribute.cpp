@@ -168,7 +168,7 @@ SoVertexAttribute::initClass(void)
                        SoNode::nextActionMethodIndex++);
 
   SoNode::setCompatibilityTypes(SoVertexAttribute::getClassTypeId(), SO_FROM_COIN_3_0);
-  SO_ENABLE(SoGLRenderAction, SoGLVertexAttributeElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLVertexAttributeElement);
 }
 
 /*!

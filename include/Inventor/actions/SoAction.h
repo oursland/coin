@@ -37,6 +37,7 @@
 #include <Inventor/SoType.h>
 #include <Inventor/misc/SoTempPath.h>
 #include <Inventor/tools/SbPimplPtr.h>
+#include <Inventor/system/renderer.h>
 
 // Include instead of using forward declarations to be compatible with
 // Open Inventor (and besides, all the other action class definitions
@@ -66,6 +67,12 @@
                           element::getClassStackIndex()); \
   } WHILE_0
 
+#define SO_ENABLE_GL(action, element) \
+  do { \
+    if (SoRenderer::isOpenGL()) { \
+      SO_ENABLE(action, element); \
+    } \
+  } WHILE_0
 
 class SoEnabledElementsList;
 class SoNode;

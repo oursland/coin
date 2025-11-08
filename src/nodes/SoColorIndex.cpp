@@ -108,7 +108,7 @@ SoColorIndex::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoColorIndex, SO_FROM_INVENTOR_1);
 
-  SO_ENABLE(SoGLRenderAction, SoGLColorIndexElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLColorIndexElement);
 }
 
 // doc in parent

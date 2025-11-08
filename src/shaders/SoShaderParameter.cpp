@@ -648,7 +648,7 @@ void SoShaderStateMatrixParameter::initClass(void)
   SO_ENABLE(SoGLRenderAction, SoModelMatrixElement);
   SO_ENABLE(SoGLRenderAction, SoViewingMatrixElement);
   SO_ENABLE(SoGLRenderAction, SoProjectionMatrixElement);
-  SO_ENABLE(SoGLRenderAction, SoGLMultiTextureMatrixElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLMultiTextureMatrixElement);
   SO_ENABLE(SoGLRenderAction, SoTextureUnitElement);
 }
 

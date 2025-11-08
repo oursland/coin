@@ -169,7 +169,7 @@ SoClipPlane::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoClipPlane, SO_FROM_INVENTOR_1);
 
-  SO_ENABLE(SoGLRenderAction, SoGLClipPlaneElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLClipPlaneElement);
   SO_ENABLE(SoPickAction, SoClipPlaneElement);
   SO_ENABLE(SoCallbackAction, SoClipPlaneElement);
 }

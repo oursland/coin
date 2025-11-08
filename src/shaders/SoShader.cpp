@@ -192,6 +192,7 @@
 #include <Inventor/elements/SoGLShaderProgramElement.h>
 #include <Inventor/C/tidbits.h>
 #include <Inventor/errors/SoDebugError.h>
+#include <Inventor/system/renderer.h>
 
 #include "glue/cg.h"
 #include "misc/SbHash.h"
@@ -239,8 +240,11 @@ SoShader::init(void)
   (void)cc_cgglue_available();
 
   // --- initialization of elements (must be done first) ---------------
-  if (SoGLShaderProgramElement::getClassTypeId() == SoType::badType())
-    SoGLShaderProgramElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    if (SoGLShaderProgramElement::getClassTypeId() == SoType::badType())
+      SoGLShaderProgramElement::initClass();
+  }
+
 
   // --- initialization of shader nodes --------------------------------
   if (SoShaderProgram::getClassTypeId() == SoType::badType())

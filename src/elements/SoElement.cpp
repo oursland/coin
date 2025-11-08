@@ -304,6 +304,7 @@
 #include <Inventor/elements/SoGLLazyElement.h> // internal element
 #include <Inventor/misc/SoState.h>
 #include <Inventor/lists/SoTypeList.h>
+#include <Inventor/system/renderer.h>
 
 #include "elements/SoTextureScalePolicyElement.h" // internal element
 #include "elements/SoTextureScaleQualityElement.h" // internal  element
@@ -379,11 +380,15 @@ SoElement::initElements(void)
 {
   SoAccumulatedElement::initClass();
   SoClipPlaneElement::initClass();
-  SoGLClipPlaneElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLClipPlaneElement::initClass();
+  }
   SoLightElement::initClass();
   SoModelMatrixElement::initClass();
   SoBBoxModelMatrixElement::initClass();
-  SoGLModelMatrixElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLModelMatrixElement::initClass();
+  }
   SoProfileElement::initClass();
   SoCacheElement::initClass();
   SoInt32Element::initClass();
@@ -393,10 +398,14 @@ SoElement::initElements(void)
   SoComplexityTypeElement::initClass();
   SoDecimationTypeElement::initClass();
   SoDrawStyleElement::initClass();
-  SoGLDrawStyleElement::initClass();
-  SoGLLightIdElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLDrawStyleElement::initClass();
+    SoGLLightIdElement::initClass();
+  }
   SoLinePatternElement::initClass();
-  SoGLLinePatternElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLLinePatternElement::initClass();
+  }
   SoMaterialBindingElement::initClass();
   SoNormalBindingElement::initClass();
   SoPickStyleElement::initClass();
@@ -411,41 +420,64 @@ SoElement::initElements(void)
   SoFocalDistanceElement::initClass();
   SoFontSizeElement::initClass();
   SoLineWidthElement::initClass();
-  SoGLLineWidthElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLLineWidthElement::initClass();
+  }
   SoPointSizeElement::initClass();
-  SoGLPointSizeElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLPointSizeElement::initClass();
+  }
   SoTextureQualityElement::initClass();
-  SoGLRenderPassElement::initClass();
-  SoGLUpdateAreaElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLRenderPassElement::initClass();
+    SoGLUpdateAreaElement::initClass();
+  }
   SoLocalBBoxMatrixElement::initClass();
   SoOverrideElement::initClass();
   SoTextureOverrideElement::initClass();
   SoPickRayElement::initClass();
   SoReplacedElement::initClass();
   SoCoordinateElement::initClass();
-  SoGLCoordinateElement::initClass();
-  SoGLColorIndexElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLCoordinateElement::initClass();
+    SoGLColorIndexElement::initClass();
+  }
+
   SoEnvironmentElement::initClass();
-  SoGLEnvironmentElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLEnvironmentElement::initClass();
+  }
   SoFontNameElement::initClass();
   SoLightAttenuationElement::initClass();
   SoNormalElement::initClass();
-  SoGLNormalElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLNormalElement::initClass();
+  }
+
   SoPolygonOffsetElement::initClass();
-  SoGLPolygonOffsetElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLPolygonOffsetElement::initClass();
+  }
   SoProjectionMatrixElement::initClass();
-  SoGLProjectionMatrixElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLProjectionMatrixElement::initClass();
+  }
   SoProfileCoordinateElement::initClass();
   SoViewingMatrixElement::initClass();
-  SoGLViewingMatrixElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLViewingMatrixElement::initClass();
+  }
   SoViewVolumeElement::initClass();
   SoShapeHintsElement::initClass();
-  SoGLShapeHintsElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLShapeHintsElement::initClass();
+  }
   SoShapeStyleElement::initClass();
   SoViewportRegionElement::initClass();
-  SoGLViewportRegionElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLViewportRegionElement::initClass();
+  }
   SoWindowElement::initClass();
-
   SoTransparencyElement::initClass();
   SoAmbientColorElement::initClass();
   SoDiffuseColorElement::initClass();
@@ -455,9 +487,13 @@ SoElement::initElements(void)
   SoSpecularColorElement::initClass();
 
   SoLazyElement::initClass();
-  SoGLLazyElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLLazyElement::initClass();
+  }
   SoCullElement::initClass();
-  SoGLCacheContextElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLCacheContextElement::initClass();
+  }
 
   SoTextureScalePolicyElement::initClass();
   SoTextureScaleQualityElement::initClass();
@@ -475,10 +511,12 @@ SoElement::initElements(void)
   SoMultiTextureImageElement::initClass();
   SoMultiTextureEnabledElement::initClass();
   SoMultiTextureMatrixElement::initClass();
-  SoGLMultiTextureCoordinateElement::initClass();
-  SoGLMultiTextureImageElement::initClass();
-  SoGLMultiTextureEnabledElement::initClass();
-  SoGLMultiTextureMatrixElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLMultiTextureCoordinateElement::initClass();
+    SoGLMultiTextureImageElement::initClass();
+    SoGLMultiTextureEnabledElement::initClass();
+    SoGLMultiTextureMatrixElement::initClass();
+  }
 
   SoBumpMapElement::initClass();
   SoBumpMapCoordinateElement::initClass();
@@ -487,13 +525,18 @@ SoElement::initElements(void)
   SoTextureCombineElement::initClass();
   SoCacheHintElement::initClass();
 
-  SoGLVBOElement::initClass();
-
+  if (SoRenderer::isOpenGL()) {
+    SoGLVBOElement::initClass();
+  }
   SoDepthBufferElement::initClass();
-  SoGLDepthBufferElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLDepthBufferElement::initClass();
+  }
 
   SoVertexAttributeElement::initClass();
-  SoGLVertexAttributeElement::initClass();
+  if (SoRenderer::isOpenGL()) {
+    SoGLVertexAttributeElement::initClass();
+  }
   SoVertexAttributeBindingElement::initClass();
 }
 

@@ -315,7 +315,7 @@ SoPolygonOffset::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoPolygonOffset, SO_FROM_INVENTOR_2_5|SO_FROM_COIN_1_0);
 
   SO_ENABLE(SoCallbackAction, SoPolygonOffsetElement);
-  SO_ENABLE(SoGLRenderAction, SoGLPolygonOffsetElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLPolygonOffsetElement);
 }
 
 

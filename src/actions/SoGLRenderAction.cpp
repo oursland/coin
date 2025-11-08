@@ -644,15 +644,15 @@ SoGLRenderAction::initClass(void)
 
   SO_ENABLE(SoGLRenderAction, SoDecimationPercentageElement);
   SO_ENABLE(SoGLRenderAction, SoDecimationTypeElement);
-  SO_ENABLE(SoGLRenderAction, SoGLLightIdElement);
-  SO_ENABLE(SoGLRenderAction, SoGLRenderPassElement);
-  SO_ENABLE(SoGLRenderAction, SoGLUpdateAreaElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLLightIdElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLRenderPassElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLUpdateAreaElement);
   SO_ENABLE(SoGLRenderAction, SoLazyElement);
   SO_ENABLE(SoGLRenderAction, SoOverrideElement);
   SO_ENABLE(SoGLRenderAction, SoTextureOverrideElement);
   SO_ENABLE(SoGLRenderAction, SoWindowElement);
-  SO_ENABLE(SoGLRenderAction, SoGLViewportRegionElement);
-  SO_ENABLE(SoGLRenderAction, SoGLCacheContextElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLViewportRegionElement);
+  SO_ENABLE_GL(SoGLRenderAction, SoGLCacheContextElement);
 
   const char * env = coin_getenv("COIN_GLBBOX");
   if (env) {
@@ -1072,6 +1072,7 @@ SoGLRenderAction::beginTraversal(SoNode * node)
   if (COIN_GLBBOX) {
     PRIVATE(this)->bboxaction->apply(node);
   }
+
   int err_before_init = GL_NO_ERROR;
 
   if (sogl_glerror_debugging()) {
