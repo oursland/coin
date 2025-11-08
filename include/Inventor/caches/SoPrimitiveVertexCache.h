@@ -61,6 +61,7 @@ public:
   virtual SbBool isValid(const SoState * state) const;
   void close(SoState * state);
 
+  void render(SoState * state) const;
   void renderTriangles(SoState * state, const int arrays = ALL) const;
   void renderLines(SoState * state, const int arrays = ALL) const;
   void renderPoints(SoState * state, const int array = ALL) const;
