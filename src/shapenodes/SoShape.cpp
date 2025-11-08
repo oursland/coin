@@ -128,6 +128,7 @@
 #include "nodes/SoSubNodeP.h"
 #include "rendering/SoGL.h"
 #include "glue/glp.h"
+#include "misc/SoShaderGenerator.h"
 #include "threads/threadsutilp.h"
 #include "tidbitsp.h"
 #include "rendering/SoVBO.h"
@@ -189,8 +190,11 @@ public:
     this->bumprender = NULL;
     this->rendercnt = 0;
     this->flags = 0;
+    this->shaderProgram = NULL;
   }
-  ~SoShapeP() {
+  ~SoShapeP()
+  {
+    if (this->shaderProgram) { this->shaderProgram->unref(); }
     if (this->bboxcache) { this->bboxcache->unref(); }
     if (this->pvcache) { this->pvcache->unref(); }
     delete this->bumprender;
@@ -209,7 +213,8 @@ public:
   static double bboxcachetimelimit;
   SoBoundingBoxCache * bboxcache;
   SoPrimitiveVertexCache * pvcache;
-  soshape_bumprender * bumprender;
+  soshape_bumprender* bumprender;
+  SoShaderProgram * shaderProgram;
   uint32_t flags : FLAG_BITS;
   // stores the number of frames rendered with no node changes
   uint32_t rendercnt : RENDERCNT_BITS;
@@ -406,6 +411,41 @@ SoShape::getBoundingBox(SoGetBoundingBoxAction * action)
   }
 }
 
+void SoShape::setupShaders(SoGLRenderAction * action)
+{
+#if defined(COIN_USE_GL_RENDERER)
+  if (!sogl_compatibility_profile(action->getState())) {
+    if (PRIVATE(this)->shaderProgram == NULL) {
+      auto shaderProgram = new SoShaderProgram;
+      shaderProgram->ref();
+
+      auto vertexShader = new SoVertexShader();
+      vertexShader->sourceProgram = SoShader::getNamedScript(SbName("base/Unlit.vert"),
+                                                      SoShader::GLSL_SHADER);
+      vertexShader->sourceType= SoShaderObject::GLSL_PROGRAM;
+      shaderProgram->shaderObject.addNode(vertexShader);
+
+      auto mvpParam = new SoShaderStateMatrixParameter();
+      mvpParam->matrixType = SoShaderStateMatrixParameter::MODELVIEW_PROJECTION;
+      mvpParam->matrixTransform = SoShaderStateMatrixParameter::IDENTITY;
+      mvpParam->name = "u_modelViewProj";
+
+      vertexShader->parameter.addNode(mvpParam);
+
+      auto fragmentShader = new SoFragmentShader();
+      fragmentShader->sourceProgram = SoShader::getNamedScript(SbName("base/Unlit.frag"),
+                                                      SoShader::GLSL_SHADER);
+      fragmentShader->sourceType= SoShaderObject::GLSL_PROGRAM;
+      shaderProgram->shaderObject.addNode(fragmentShader);
+
+      PRIVATE(this)->shaderProgram = shaderProgram;
+    }
+
+    PRIVATE(this)->shaderProgram->GLRender(action);
+  }
+#endif
+}
+
 // Doc in parent.
 void
 SoShape::GLRender(SoGLRenderAction * action)
@@ -414,6 +454,8 @@ SoShape::GLRender(SoGLRenderAction * action)
   // generatePrimitives should therefore be used to render the
   // shape. This is probably painfully slow, so if you want speed,
   // implement the GLRender() method.  pederb, 20000612
+
+  setupShaders(action);
 
   if (!this->shouldGLRender(action)) return;
 

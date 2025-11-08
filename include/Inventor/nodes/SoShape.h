@@ -149,6 +149,9 @@ protected:
                          const SbBool normpervertex,
                          const SbBool texpervertex,
                          const SbBool colorpervertex);
+
+  void setupShaders(SoGLRenderAction * action);
+
 private:
   class SoShapeP * pimpl;
   void validatePVCache(SoGLRenderAction * action);
