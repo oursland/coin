@@ -34,6 +34,8 @@
 #include <config.h>
 #endif // HAVE_CONFIG_H
 
+#include "rendering/SoGL.h"
+
 #ifdef HAVE_VRML97
 
 /*!
@@ -252,37 +254,43 @@ SoVRMLSpotLight::GLRender(SoGLRenderAction * action)
     return;
   }
 
-  GLenum light = (GLenum) (idx + GL_LIGHT0);
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
+    GLenum light = (GLenum) (idx + GL_LIGHT0);
 
-  SbVec3f att = this->attenuation.getValue();
+    SbVec3f att = this->attenuation.getValue();
 
-  glLightf(light, GL_CONSTANT_ATTENUATION, att[0]);
-  glLightf(light, GL_LINEAR_ATTENUATION, att[1]);
-  glLightf(light, GL_QUADRATIC_ATTENUATION, att[2]);
+    glLightf(light, GL_CONSTANT_ATTENUATION, att[0]);
+    glLightf(light, GL_LINEAR_ATTENUATION, att[1]);
+    glLightf(light, GL_QUADRATIC_ATTENUATION, att[2]);
 
-  SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
-  lightcolor.setRGB(this->color.getValue());
-  lightcolor *= this->ambientIntensity.getValue();
-  glLightfv(light, GL_AMBIENT, lightcolor.getValue());
+    SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
+    lightcolor.setRGB(this->color.getValue());
+    lightcolor *= this->ambientIntensity.getValue();
+    glLightfv(light, GL_AMBIENT, lightcolor.getValue());
 
-  lightcolor.setRGB(this->color.getValue());
-  lightcolor *= this->intensity.getValue();
+    lightcolor.setRGB(this->color.getValue());
+    lightcolor *= this->intensity.getValue();
 
-  glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
-  glLightfv(light, GL_SPECULAR, lightcolor.getValue());
+    glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
+    glLightfv(light, GL_SPECULAR, lightcolor.getValue());
 
-  SbVec3f loc = this->location.getValue();
+    SbVec3f loc = this->location.getValue();
 
-  // point (or spot) light when w = 1.0
-  SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
-  glLightfv(light, GL_POSITION, posvec.getValue());
-  glLightfv(light, GL_SPOT_DIRECTION, this->direction.getValue().getValue());
+    // point (or spot) light when w = 1.0
+    SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
+    glLightfv(light, GL_POSITION, posvec.getValue());
+    glLightfv(light, GL_SPOT_DIRECTION, this->direction.getValue().getValue());
 
-  float cutoff = SbClamp(this->cutOffAngle.getValue(), 0.0f, float(M_PI)*0.5f) * 180.0f / float(M_PI);
-  glLightf(light, GL_SPOT_EXPONENT, 0.0f);
-  glLightf(light, GL_SPOT_CUTOFF, cutoff);
+    float cutoff = SbClamp(this->cutOffAngle.getValue(), 0.0f, float(M_PI)*0.5f) * 180.0f / float(M_PI);
+    glLightf(light, GL_SPOT_EXPONENT, 0.0f);
+    glLightf(light, GL_SPOT_CUTOFF, cutoff);
 
-  // FIXME: consider radius and beamWidth
+    // FIXME: consider radius and beamWidth
+  }
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }
 
 #endif // HAVE_VRML97

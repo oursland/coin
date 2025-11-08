@@ -575,7 +575,13 @@ sogl_render_sphere(const float radius,
       glTexCoord2f(currs, T);
     }
     else if (flags & SOGL_NEED_3DTEXCOORDS) {
-      glTexCoord3fv((const GLfloat*) &texcoords[j-1]);
+#if defined(COIN_GL_COMPATIBILITY)
+        if (sogl_compatibility_profile(state)) {
+          glTexCoord3fv((const GLfloat*) &texcoords[j-1]);
+        }
+#else
+        assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     }
     if (flags & SOGL_NEED_MULTITEXCOORDS) {
       for (u = 1; u <= maxunit; u++) {
@@ -601,8 +607,14 @@ sogl_render_sphere(const float radius,
       glTexCoord2f(currs, T);
     }
     else if (flags & SOGL_NEED_3DTEXCOORDS) {
-      texcoords[j] = tmp/2 + SbVec3f(0.5f,0.5f,0.5f);
-      glTexCoord3fv((const GLfloat*) &texcoords[j]);
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(state)) {
+        texcoords[j] = tmp/2 + SbVec3f(0.5f,0.5f,0.5f);
+        glTexCoord3fv((const GLfloat*) &texcoords[j]);
+      }
+#else
+      assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     }
     if (flags & SOGL_NEED_MULTITEXCOORDS) {
       for (u = 1; u <= maxunit; u++) {
@@ -630,7 +642,13 @@ sogl_render_sphere(const float radius,
         glTexCoord2f(S[j], T);
       }
       else if (flags & SOGL_NEED_3DTEXCOORDS) {
-        glTexCoord3fv((const GLfloat*) &texcoords[j]);
+#if defined(COIN_GL_COMPATIBILITY)
+        if (sogl_compatibility_profile(state)) {
+          glTexCoord3fv((const GLfloat*) &texcoords[j]);
+        }
+#else
+        assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
       }
       if (flags & SOGL_NEED_MULTITEXCOORDS) {
         for (u = 1; u <= maxunit; u++) {
@@ -650,8 +668,14 @@ sogl_render_sphere(const float radius,
         glTexCoord2f(S[j], T - dT);
       }
       else if (flags & SOGL_NEED_3DTEXCOORDS) {
-        texcoords[j] = tmp/2 + SbVec3f(0.5f,0.5f,0.5f);
-        glTexCoord3fv((const GLfloat*) &texcoords[j]);
+#if defined(COIN_GL_COMPATIBILITY)
+        if (sogl_compatibility_profile(state)) {
+          texcoords[j] = tmp/2 + SbVec3f(0.5f,0.5f,0.5f);
+          glTexCoord3fv((const GLfloat*) &texcoords[j]);
+        }
+#else
+        assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
       }
       if (flags & SOGL_NEED_MULTITEXCOORDS) {
         for (u = 1; u <= maxunit; u++) {
@@ -679,7 +703,13 @@ sogl_render_sphere(const float radius,
       glTexCoord2f(S[j], T);
     }
     else if (flags & SOGL_NEED_3DTEXCOORDS) {
-      glTexCoord3fv((const GLfloat*) &texcoords[j]);
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(state)) {
+        glTexCoord3fv((const GLfloat*) &texcoords[j]);
+      }
+#else
+      assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     }
     if (flags & SOGL_NEED_MULTITEXCOORDS) {
       for (u = 1; u <= maxunit; u++) {
@@ -713,7 +743,13 @@ sogl_render_sphere(const float radius,
       glTexCoord2f(S[j+1], T);
     }
     else if (flags & SOGL_NEED_3DTEXCOORDS) {
-      glTexCoord3fv((const GLfloat*) &texcoords[j+1]);
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(state)) {
+        glTexCoord3fv((const GLfloat*) &texcoords[j+1]);
+      }
+#else
+      assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     }
     if (flags & SOGL_NEED_MULTITEXCOORDS) {
       for (u = 1; u <= maxunit; u++) {
@@ -826,34 +862,48 @@ sogl_render_cube(const float width,
                          width * 0.5f,
                          height * 0.5f,
                          depth * 0.5f);
-  glBegin(GL_QUADS);
-  int *iptr = sogl_cube_vindices;
-  int u;
+  if (SoRenderer::isOpenGL()) {
+    if (sogl_compatibility_profile(state)) {
+      glBegin(GL_QUADS);
+      int *iptr = sogl_cube_vindices;
+      int u;
 
-  for (int i = 0; i < 6; i++) { // 6 quads
-    if (flags & SOGL_NEED_NORMALS)
-      glNormal3fv((const GLfloat*)&sogl_cube_normals[i*3]);
-    if (flags & SOGL_MATERIAL_PER_PART)
-      material->send(i, TRUE);
-    for (int j = 0; j < 4; j++) {
-      if (flags & SOGL_NEED_3DTEXCOORDS) {
-        glTexCoord3fv(sogl_cube_3dtexcoords[*iptr]);
-      }
-      else if (flags & SOGL_NEED_TEXCOORDS) {
-        glTexCoord2fv(&sogl_cube_texcoords[j<<1]);
-      }
-      if (flags & SOGL_NEED_MULTITEXCOORDS) {
-        for (u = 1; u <= maxunit; u++) {
-          if (unitenabled[u]) {
-            cc_glglue_glMultiTexCoord2fv(glue, (GLenum) (GL_TEXTURE0 + u),
-                                         &sogl_cube_texcoords[j<<1]);
+      for (int i = 0; i < 6; i++) { // 6 quads
+        if (flags & SOGL_NEED_NORMALS)
+          glNormal3fv((const GLfloat*)&sogl_cube_normals[i*3]);
+        if (flags & SOGL_MATERIAL_PER_PART)
+          material->send(i, TRUE);
+        for (int j = 0; j < 4; j++) {
+          if (flags & SOGL_NEED_3DTEXCOORDS) {
+#if defined(COIN_GL_COMPATIBILITY)
+            if (sogl_compatibility_profile(state)) {
+              glTexCoord3fv(sogl_cube_3dtexcoords[*iptr]);
+            }
+#else
+            assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
           }
+          else if (flags & SOGL_NEED_TEXCOORDS) {
+            glTexCoord2fv(&sogl_cube_texcoords[j<<1]);
+          }
+          if (flags & SOGL_NEED_MULTITEXCOORDS) {
+            for (u = 1; u <= maxunit; u++) {
+              if (unitenabled[u]) {
+                cc_glglue_glMultiTexCoord2fv(glue, (GLenum) (GL_TEXTURE0 + u),
+                                            &sogl_cube_texcoords[j<<1]);
+              }
+            }
+          }
+          glVertex3fv((const GLfloat*)&varray[*iptr++]);
         }
       }
-      glVertex3fv((const GLfloat*)&varray[*iptr++]);
+      glEnd();
+    } else {
+      SoDebugError::post("SoGL::sogl_render_cube",
+        "Immediate mode rendering is not available, use primitive vertex cache mode."
+      );
     }
   }
-  glEnd();
 
   if (state) {
     // always encourage auto caching for cubes

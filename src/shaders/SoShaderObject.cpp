@@ -606,7 +606,11 @@ SoShaderObjectP::isSupported(SoShaderObject::SourceType sourceType, const cc_glg
       return SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_VERTEX_PROGRAM);
     }
     else if (sourceType == SoShaderObject::GLSL_PROGRAM) {
+#if !defined(COIN_GL_COMPATIBILITY)
+      return TRUE;
+#else
       return SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_SHADER_OBJECT);
+#endif
     }
     // FIXME: Add support for detecting missing Cg support
     // (20050427 handegar)
@@ -621,7 +625,11 @@ SoShaderObjectP::isSupported(SoShaderObject::SourceType sourceType, const cc_glg
       return SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_FRAGMENT_PROGRAM);
     }
     else if (sourceType == SoShaderObject::GLSL_PROGRAM) {
+#if !defined(COIN_GL_COMPATIBILITY)
+      return TRUE;
+#else
       return SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_SHADER_OBJECT);
+#endif
     }
     // FIXME: Add support for detecting missing Cg support (20050427
     // handegar)
@@ -631,9 +639,12 @@ SoShaderObjectP::isSupported(SoShaderObject::SourceType sourceType, const cc_glg
   else {
     assert(this->owner->isOfType(SoGeometryShader::getClassTypeId()));
     if (sourceType == SoShaderObject::GLSL_PROGRAM) {
-      return
-        SoGLDriverDatabase::isSupported(glue, "GL_EXT_geometry_shader4") &&
-        SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_SHADER_OBJECT);
+#if !defined(COIN_GL_COMPATIBILITY)
+      return TRUE;
+#else
+      return SoGLDriverDatabase::isSupported(glue, "GL_EXT_geometry_shader4")
+          && SoGLDriverDatabase::isSupported(glue, SO_GL_ARB_SHADER_OBJECT);
+#endif
     }
     return FALSE;
   }

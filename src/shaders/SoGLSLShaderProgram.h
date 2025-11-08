@@ -82,6 +82,7 @@ protected:
   SbBool isExecutable;
   SbBool neededlinking;
 
+  static void printInfoLog(const cc_glglue * g, COIN_GLhandle handle);
   int indexOfShaderObject(SoGLSLShaderObject * shaderObject);
   void ensureLinking(const cc_glglue * g);
   void ensureProgramHandle(const cc_glglue * g);

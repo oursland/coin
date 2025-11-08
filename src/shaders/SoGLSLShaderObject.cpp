@@ -31,8 +31,10 @@
 \**************************************************************************/
 
 #include "shaders/SoGLSLShaderObject.h"
+#include "Inventor/C/glue/gl.h"
 #include "coindefs.h"
 
+#include <GL/glext.h>
 #include <cassert>
 #include <cstdio>
 #include <Inventor/errors/SoDebugError.h>
@@ -81,6 +83,59 @@ SoGLSLShaderObject::isLoaded(void) const
 void
 SoGLSLShaderObject::load(const char* srcStr)
 {
+  if (cc_glglue_glprofile_compat(this->glctx)) {
+    loadARB(srcStr);
+    return;
+  }
+
+  this->unload();
+  this->setParametersDirty(TRUE);
+
+  GLint flag;
+  GLenum sType;
+
+  switch (this->getShaderType()) {
+  default:
+    assert(0 &&" unknown shader type");
+  case VERTEX:
+    sType = GL_VERTEX_SHADER;
+    break;
+  case FRAGMENT:
+    sType = GL_FRAGMENT_SHADER;
+    break;
+  case GEOMETRY:
+    sType = GL_GEOMETRY_SHADER;
+    break;
+  }
+
+  SoGLSLShaderObject::didOpenGLErrorOccur("SoGLSLShaderObject::load() : previous errors");
+
+  this->shaderHandle = glCreateShader(sType);
+  this->programid = 0;
+
+  if (this->shaderHandle == 0) return;
+  this->programid = soglshaderobject_idcounter++;
+
+  glShaderSource(this->shaderHandle, 1, (const COIN_GLchar **)&srcStr, NULL);
+  glCompileShader(this->shaderHandle);
+
+  if (SoGLSLShaderObject::didOpenGLErrorOccur("SoGLSLShaderObject::load()")) {
+    this->shaderHandle = 0;
+    return;
+  }
+
+  glGetShaderiv(this->shaderHandle, GL_COMPILE_STATUS, &flag);
+  SoGLSLShaderObject::printInfoLog(this->GLContext(), this->shaderHandle,
+                                   this->getShaderType());
+
+  if (!flag) {
+    this->shaderHandle = 0;
+  }
+}
+
+void
+SoGLSLShaderObject::loadARB(const char* srcStr)
+{
   this->unload();
   this->setParametersDirty(TRUE);
 
@@ -101,7 +156,7 @@ SoGLSLShaderObject::load(const char* srcStr)
     break;
   }
 
-  SoGLSLShaderObject::didOpenGLErrorOccur("SoGLSLShaderObject::load() : previous errors");
+  SoGLSLShaderObject::didOpenGLErrorOccur("SoGLSLShaderObject::loadARB() : previous errors");
 
   this->shaderHandle = this->glctx->glCreateShaderObjectARB(sType);
   this->programid = 0;
@@ -153,7 +208,11 @@ SoGLSLShaderObject::attach(COIN_GLhandle programHandle)
 
   if (this->shaderHandle) {
     this->programHandle = programHandle;
-    this->glctx->glAttachObjectARB(this->programHandle, this->shaderHandle);
+    if (cc_glglue_glprofile_compat(this->glctx)) {
+      this->glctx->glAttachObjectARB(this->programHandle, this->shaderHandle);
+    } else {
+      glAttachShader(this->programHandle, this->shaderHandle);
+    }
     this->isattached = TRUE;
   }
 }
@@ -179,12 +238,20 @@ SoGLSLShaderObject::printInfoLog(const cc_glglue * g, COIN_GLhandle handle, int 
 {
   GLint length = 0;
 
-  g->glGetObjectParameterivARB(handle, GL_OBJECT_INFO_LOG_LENGTH_ARB, &length);
+  if (cc_glglue_glprofile_compat(g)) {
+    g->glGetObjectParameterivARB(handle, GL_OBJECT_INFO_LOG_LENGTH_ARB, &length);
+  } else {
+    glGetShaderiv(handle, GL_INFO_LOG_LENGTH, &length);
+  }
 
   if (length > 1) {
     COIN_GLchar *infoLog = new COIN_GLchar[length];
     GLsizei charsWritten = 0;
-    g->glGetInfoLogARB(handle, length, &charsWritten, infoLog);
+    if (cc_glglue_glprofile_compat(g)) {
+      g->glGetInfoLogARB(handle, length, &charsWritten, infoLog);
+    } else {
+      glGetShaderInfoLog(handle, length, &charsWritten, infoLog);
+    }
     SbString s("GLSL");
     switch (objType) {
     case 0: s += "vertexShader "; break;
@@ -249,8 +316,14 @@ SoGLSLShaderObject::updateCoinParameter(SoState * COIN_UNUSED_ARG(state), const 
       if (p->value.getValue() != value) p->value = value;
     }
     else {
-      GLint location = glue->glGetUniformLocationARB(pHandle,
-                                                     (const COIN_GLchar *)name.getString());
+      GLint location;
+      if (sogl_compatibility_profile(state)) {
+        location = glue->glGetUniformLocationARB(pHandle,
+                                                    (const COIN_GLchar *)name.getString());
+      } else {
+        location = glGetUniformLocation(pHandle,
+                                              (const COIN_GLchar *)name.getString());
+      }
 
 #if 0
       fprintf(stderr,"action: %s, name: %s, loc: %d, handle: %p\n",
@@ -258,7 +331,11 @@ SoGLSLShaderObject::updateCoinParameter(SoState * COIN_UNUSED_ARG(state), const 
               name.getString(), location, pHandle);
 #endif
       if (location >= 0) {
-        glue->glUniform1iARB(location, value);
+        if (sogl_compatibility_profile(state)) {
+          glue->glUniform1iARB(location, value);
+        } else {
+          glUniform1i(location, value);
+        }
       }
     }
   }

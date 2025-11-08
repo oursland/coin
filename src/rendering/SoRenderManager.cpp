@@ -65,6 +65,7 @@
 #include <vector>
 
 #include <Inventor/system/gl.h>
+#include <Inventor/system/renderer.h>
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/elements/SoDrawStyleElement.h>
@@ -87,6 +88,7 @@
 #include "coindefs.h"
 #include "tidbitsp.h"
 #include "misc/AudioTools.h"
+#include "rendering/SoGL.h"
 #include "coindefs.h"
 
 #if COIN_WORKAROUND(COIN_MSVC, <= COIN_MSVC_6_0_VERSION)
@@ -479,12 +481,15 @@ SoRenderManager::detachClipSensor(void)
 void
 SoRenderManager::clearBuffers(SbBool color, SbBool depth)
 {
-  GLbitfield mask = 0;
-  if (color) mask |= GL_COLOR_BUFFER_BIT;
-  if (depth) mask |= GL_DEPTH_BUFFER_BIT;
-  const SbColor4f bgcol = PRIVATE(this)->backgroundcolor;
-  glClearColor(bgcol[0], bgcol[1], bgcol[2], bgcol[3]);
-  glClear(mask);
+  if (SoRenderer::isOpenGL()) {
+    GLbitfield mask = 0;
+    if (color) mask |= GL_COLOR_BUFFER_BIT;
+    if (depth) mask |= GL_DEPTH_BUFFER_BIT;
+    const SbColor4f bgcol = PRIVATE(this)->backgroundcolor;
+    glClearColor(bgcol[0], bgcol[1], bgcol[2], bgcol[3]);
+    glClear(mask);
+    return;
+  }
 }
 
 /*
@@ -505,15 +510,19 @@ SoRenderManager::prerendercb(void * userdata, SoGLRenderAction * action)
   GLbitfield mask = (GLbitfield)bitfield;
 
 #if COIN_DEBUG && 0 // debug
-  GLint view[4];
-  glGetIntegerv(GL_VIEWPORT, view);
-  SoDebugError::postInfo("SoRenderManager::prerendercb",
-                         "GL_VIEWPORT=<%d, %d, %d, %d>",
-                         view[0], view[1], view[2], view[3]);
+  if (SoRenderer::isOpenGL()) {
+    GLint view[4];
+    glGetIntegerv(GL_VIEWPORT, view);
+    SoDebugError::postInfo("SoRenderManager::prerendercb",
+                           "GL_VIEWPORT=<%d, %d, %d, %d>",
+                           view[0], view[1], view[2], view[3]);
+  }
 #endif // debug
 
-  // clear the viewport
-  glClear(mask);
+  if (SoRenderer::isOpenGL()) {
+    // clear the viewport
+    glClear(mask);
+  }
 }
 
 /*!
@@ -635,22 +644,28 @@ SoRenderManager::render(const SbBool clearwindow, const SbBool clearzbuffer)
     action->setCurPass(0, numpasses);
     this->render(action, TRUE, clearwindow, clearzbuffer);
 
-    // check if we have an accumulation buffer, and render additional passes
-    GLint accumbits;
-    glGetIntegerv(GL_ACCUM_RED_BITS, &accumbits);
-    if (!action->hasTerminated() && accumbits > 0) {
-      const float fraction = 1.0f / float(numpasses);
-      glAccum(GL_LOAD, fraction);
+#if defined(COIN_GL_COMPATIBILITY)
+      if (SoRenderer::isOpenGL() &&
+          sogl_compatibility_profile(action->getState())) {
+        // check if we have an accumulation buffer, and render additional passes
+        GLint accumbits;
+        glGetIntegerv(GL_ACCUM_RED_BITS, &accumbits);
+        if (!action->hasTerminated() && accumbits > 0) {
+          const float fraction = 1.0f / float(numpasses);
+          glAccum(GL_LOAD, fraction);
 
-      for (int i = 1; (i < numpasses) && !action->hasTerminated(); i++) {
-        action->setCurPass(i, numpasses);
-        this->render(action, TRUE, TRUE, TRUE);
-        glAccum(GL_ACCUM, fraction);
+          for (int i = 1; (i < numpasses) && !action->hasTerminated(); i++) {
+            action->setCurPass(i, numpasses);
+            this->render(action, TRUE, TRUE, TRUE);
+            glAccum(GL_ACCUM, fraction);
+          }
+          glAccum(GL_RETURN, 1.0f);
+        }
       }
-      glAccum(GL_RETURN, 1.0f);
-    }
-    action->setCurPass(0, 1);
-    action->setNumPasses(numpasses);
+#endif // COIN_GL_COMPATIBILITY
+
+      action->setCurPass(0, 1);
+      action->setNumPasses(numpasses);
   }
   else {
     // let SoGLRenderAction handle the accumulation buffer
@@ -725,10 +740,16 @@ SoRenderManager::actuallyRender(SoGLRenderAction * action,
   if (clearzbuffer) mask |= GL_DEPTH_BUFFER_BIT;
 
   if (initmatrices) {
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
+    if (SoRenderer::isOpenGL()) {
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(action->getState())) {
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+      }
+    }
+#endif
   }
 
   // If there have been changes in the scene graph leading to a node
@@ -783,11 +804,21 @@ SoRenderManager::renderScene( SoGLRenderAction * action,
   if (clearmask) {
     if (clearmask & GL_COLOR_BUFFER_BIT) {
       if (PRIVATE(this)->isrgbmode) {
-        const SbColor4f bgcol = PRIVATE(this)->backgroundcolor;
-        glClearColor(bgcol[0], bgcol[1], bgcol[2], bgcol[3]);
-      }
-      else {
-        glClearIndex((GLfloat) PRIVATE(this)->backgroundindex);
+        if (SoRenderer::isOpenGL()) {
+          const SbColor4f bgcol = PRIVATE(this)->backgroundcolor;
+          glClearColor(bgcol[0], bgcol[1], bgcol[2], bgcol[3]);
+        }
+      } else {
+
+        if (SoRenderer::isOpenGL()) {
+#if defined(COIN_GL_COMPATIBILITY)
+          if (sogl_compatibility_profile(action->getState())) {
+            glClearIndex((GLfloat) PRIVATE(this)->backgroundindex);
+          }
+#else
+          assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
+        }
       }
     }
     // Registering a callback is needed since the correct GL viewport
@@ -848,7 +879,9 @@ SoRenderManager::renderSingle(SoGLRenderAction * action,
       this->clearBuffers(TRUE, TRUE);
 
       // only draw into depth buffer
-      glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+      if (SoRenderer::isOpenGL()) {
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+      }
       SoMaterialBindingElement::set(state, node, SoMaterialBindingElement::OVERALL);
       SoLightModelElement::set(state, node, SoLightModelElement::BASE_COLOR);
       SoPolygonOffsetElement::set(state, node, 1.0f, 1.0f,
@@ -859,7 +892,9 @@ SoRenderManager::renderSingle(SoGLRenderAction * action,
       this->actuallyRender(action, initmatrices, FALSE, FALSE);
 
       // re-enable draw masks
-      glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+      if (SoRenderer::isOpenGL()) {
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+      }
       SoPolygonOffsetElement::set(state, node, 0.0f, 0.0f,
                                   SoPolygonOffsetElement::FILLED, FALSE);
       SoDrawStyleElement::set(state, node, SoDrawStyleElement::LINES);
@@ -893,29 +928,36 @@ SoRenderManager::renderSingle(SoGLRenderAction * action,
       SoOverrideElement::setPolygonOffsetOverride(state, node, TRUE);
       
       // sanity checks
-      glDisable(GL_LINE_STIPPLE);
-      glDepthMask(GL_FALSE);
-      glDepthFunc(GL_LEQUAL);
+      if (SoRenderer::isOpenGL()) {
+        glDisable(GL_LINE_STIPPLE);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_LEQUAL);
+      }
 
       // render visible edges as solid ones
       this->actuallyRender(action, initmatrices, FALSE, FALSE);
       
       // pass 3
-      glDepthFunc(GL_GREATER);
+      // render hidden edges using dashed state when available
+      if (SoRenderer::isOpenGL()) {
+        glDepthFunc(GL_GREATER);
+        glLineWidth(1.0f);
+        glEnable(GL_LINE_STIPPLE);
+        glLineStipple(2, 0xF0F0); // dashed line
+      }
       SoLineWidthElement::set(state, node, 1.0f);
       SoOverrideElement::setLineWidthOverride(state, node, TRUE);
-      glLineWidth(1.0f);
-      glEnable(GL_LINE_STIPPLE);
-      glLineStipple(2, 0xF0F0); // dashed line
       
       // render hidden edges as dashed lines
       this->actuallyRender(action, initmatrices, FALSE, FALSE);
 
       // Restore OpenGL state
-      glDisable(GL_LINE_STIPPLE);
-      glDepthMask(GL_TRUE);
-      glDepthFunc(GL_LEQUAL);
-      glLineWidth(1.0f);
+      if (SoRenderer::isOpenGL()) {
+        glDisable(GL_LINE_STIPPLE);
+        glDepthMask(GL_TRUE);
+        glDepthFunc(GL_LEQUAL);
+        glLineWidth(1.0f);
+      }
     }
     break;
   case SoRenderManager::WIREFRAME_OVERLAY:
@@ -965,80 +1007,85 @@ SoRenderManager::renderStereo(SoGLRenderAction * action,
                               SbBool clearzbuffer)
 {
   if (!PRIVATE(this)->camera) return;
+  if (SoRenderer::isOpenGL()) {
+    this->clearBuffers(TRUE, TRUE);
+    PRIVATE(this)->camera->setStereoAdjustment(PRIVATE(this)->stereooffset);
 
-  this->clearBuffers(TRUE, TRUE);
-  PRIVATE(this)->camera->setStereoAdjustment(PRIVATE(this)->stereooffset);
+    SbBool stenciltestenabled = glIsEnabled(GL_STENCIL_TEST);
 
-  SbBool stenciltestenabled = glIsEnabled(GL_STENCIL_TEST);
+    // left eye
+    PRIVATE(this)->camera->setStereoMode(SoCamera::LEFT_VIEW);
 
-  // left eye
-  PRIVATE(this)->camera->setStereoMode(SoCamera::LEFT_VIEW);
+    switch (PRIVATE(this)->stereomode) {
+    case SoRenderManager::ANAGLYPH:
+      glColorMask(GL_TRUE, GL_FALSE, GL_FALSE, GL_TRUE);
+      this->renderSingle(action, initmatrices, FALSE, FALSE);
+      break;
+    case SoRenderManager::QUAD_BUFFER:
+      glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK_LEFT : GL_FRONT_LEFT);
+      this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
+      break;
+    case SoRenderManager::INTERLEAVED_ROWS:
+    case SoRenderManager::INTERLEAVED_COLUMNS:
+      this->initStencilBufferForInterleavedStereo();
+      glEnable(GL_STENCIL_TEST);
+      glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+      glStencilFunc(GL_EQUAL, 0x1, 0x1);
+      this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
+      break;
+    default:
+      assert(0 && "unknown stereo mode");
+      break;
+    }
 
-  switch (PRIVATE(this)->stereomode) {
-  case SoRenderManager::ANAGLYPH:
-    glColorMask(GL_TRUE, GL_FALSE, GL_FALSE, GL_TRUE);
-    this->renderSingle(action, initmatrices, FALSE, FALSE);
-    break;
-  case SoRenderManager::QUAD_BUFFER:
-    glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK_LEFT : GL_FRONT_LEFT);
-    this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
-    break;
-  case SoRenderManager::INTERLEAVED_ROWS:
-  case SoRenderManager::INTERLEAVED_COLUMNS:
-    this->initStencilBufferForInterleavedStereo();
-    glEnable(GL_STENCIL_TEST);
-    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-    glStencilFunc(GL_EQUAL, 0x1, 0x1);
-    this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
-    break;
-  default:
-    assert(0 && "unknown stereo mode");
-    break;
+    // right eye
+    PRIVATE(this)->camera->setStereoMode(SoCamera::RIGHT_VIEW);
+
+    switch (PRIVATE(this)->stereomode) {
+    case SoRenderManager::ANAGLYPH:
+      glClear(GL_DEPTH_BUFFER_BIT);
+      glColorMask(GL_FALSE, GL_TRUE, GL_TRUE, GL_TRUE);
+      this->renderSingle(action, initmatrices, FALSE, TRUE);
+      break;
+    case SoRenderManager::QUAD_BUFFER:
+      glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK_RIGHT : GL_FRONT_RIGHT);
+      this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
+      break;
+    case SoRenderManager::INTERLEAVED_ROWS:
+    case SoRenderManager::INTERLEAVED_COLUMNS:
+      glStencilFunc(GL_NOTEQUAL, 0x1, 0x1);
+      this->renderSingle(action, initmatrices, FALSE, FALSE);
+      break;
+    default:
+      assert(0 && "unknown stereo mode");
+      break;
+    }
+
+    // restore / post render operations
+    PRIVATE(this)->camera->setStereoMode(SoCamera::MONOSCOPIC);
+
+    switch (PRIVATE(this)->stereomode) {
+    case SoRenderManager::ANAGLYPH:
+      glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+      break;
+    case SoRenderManager::QUAD_BUFFER:
+      glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK : GL_FRONT);
+      break;
+    case SoRenderManager::INTERLEAVED_ROWS:
+    case SoRenderManager::INTERLEAVED_COLUMNS:
+      stenciltestenabled ?
+        glEnable(GL_STENCIL_TEST) :
+        glDisable(GL_STENCIL_TEST);
+      break;
+    default:
+      assert(0 && "unknown stereo mode");
+      break;
+    }
+    return;
   }
 
-  // right eye
-  PRIVATE(this)->camera->setStereoMode(SoCamera::RIGHT_VIEW);
-
-  switch (PRIVATE(this)->stereomode) {
-  case SoRenderManager::ANAGLYPH:
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glColorMask(GL_FALSE, GL_TRUE, GL_TRUE, GL_TRUE);
-    this->renderSingle(action, initmatrices, FALSE, TRUE);
-    break;
-  case SoRenderManager::QUAD_BUFFER:
-    glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK_RIGHT : GL_FRONT_RIGHT);
-    this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
-    break;
-  case SoRenderManager::INTERLEAVED_ROWS:
-  case SoRenderManager::INTERLEAVED_COLUMNS:
-    glStencilFunc(GL_NOTEQUAL, 0x1, 0x1);
-    this->renderSingle(action, initmatrices, FALSE, FALSE);
-    break;
-  default:
-    assert(0 && "unknown stereo mode");
-    break;
-  }
-
-  // restore / post render operations
-  PRIVATE(this)->camera->setStereoMode(SoCamera::MONOSCOPIC);
-
-  switch (PRIVATE(this)->stereomode) {
-  case SoRenderManager::ANAGLYPH:
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    break;
-  case SoRenderManager::QUAD_BUFFER:
-    glDrawBuffer(PRIVATE(this)->doublebuffer ? GL_BACK : GL_FRONT);
-    break;
-  case SoRenderManager::INTERLEAVED_ROWS:
-  case SoRenderManager::INTERLEAVED_COLUMNS:
-    stenciltestenabled ?
-      glEnable(GL_STENCIL_TEST) :
-      glDisable(GL_STENCIL_TEST);
-    break;
-  default:
-    assert(0 && "unknown stereo mode");
-    break;
-  }
+  // Fall back to mono rendering for non-OpenGL backends.
+  this->renderSingle(action, initmatrices, clearwindow, clearzbuffer);
 }
 
 /*!
@@ -1073,6 +1120,10 @@ SoRenderManager::setAutoClipping(AutoClippingStrategy autoclipping)
 void
 SoRenderManager::initStencilBufferForInterleavedStereo(void)
 {
+  if (!SoRenderer::isOpenGL()) {
+    return;
+  }
+
   const SbViewportRegion & currentvp = PRIVATE(this)->glaction->getViewportRegion();
   if (PRIVATE(this)->stereostencilmaskvp == currentvp) { return; } // the common case
 
@@ -1155,9 +1206,15 @@ SoRenderManager::initStencilBufferForInterleavedStereo(void)
     // XFree86 v4.1.0.1). Should test on other systems to see if they
     // show the same artifact.
 
+#if defined(COIN_GL_COMPATIBILITY)
+  //if (sogl_compatibility_profile(state)) {
     glRasterPos2f(0, 0);
     glDrawPixels(newsize[0], newsize[1], GL_STENCIL_INDEX, GL_BITMAP,
                  PRIVATE(this)->stereostencilmask);
+  //}
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();

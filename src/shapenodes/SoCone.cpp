@@ -90,6 +90,8 @@
 #include <Inventor/elements/SoMaterialBindingElement.h>
 #include <Inventor/elements/SoGLMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoMultiTextureCoordinateElement.h>
+#include <Inventor/elements/SoShapeStyleElement.h>
+
 #include <Inventor/misc/SoState.h>
 
 #if COIN_DEBUG
@@ -210,6 +212,12 @@ SoCone::GLRender(SoGLRenderAction * action)
   if (!shouldGLRender(action)) return;
 
   SoState * state = action->getState();
+
+  const SoShapeStyleElement * shapestyle = SoShapeStyleElement::get(state);
+  unsigned int shapestyleflags = shapestyle->getFlags();
+  if (shapestyleflags & SoShapeStyleElement::VERTEXARRAY) {
+    return SoShape::GLRender(action);
+  }
 
   SbBool doTextures = FALSE;
   SbBool do3DTextures = FALSE;

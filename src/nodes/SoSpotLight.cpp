@@ -78,6 +78,7 @@
 #include <Inventor/system/gl.h>
 
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 
 // *************************************************************************
 
@@ -167,45 +168,51 @@ SoSpotLight::GLRender(SoGLRenderAction * action)
   SoLightElement::add(state, this, SoModelMatrixElement::get(state) *
                       SoViewingMatrixElement::get(state));
 
-  GLenum light = (GLenum) (idx + GL_LIGHT0);
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
+    GLenum light = (GLenum) (idx + GL_LIGHT0);
 
-  SbVec3f attenuation = SoEnvironmentElement::getLightAttenuation(state);
+    SbVec3f attenuation = SoEnvironmentElement::getLightAttenuation(state);
 
-  glLightf(light, GL_QUADRATIC_ATTENUATION, attenuation[0]);
-  glLightf(light, GL_LINEAR_ATTENUATION, attenuation[1]);
-  glLightf(light, GL_CONSTANT_ATTENUATION, attenuation[2]);
+    glLightf(light, GL_QUADRATIC_ATTENUATION, attenuation[0]);
+    glLightf(light, GL_LINEAR_ATTENUATION, attenuation[1]);
+    glLightf(light, GL_CONSTANT_ATTENUATION, attenuation[2]);
 
-  SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
-  // disable ambient contribution from this light source
-  glLightfv(light, GL_AMBIENT, lightcolor.getValue());
-  lightcolor.setRGB(this->color.getValue());
-  lightcolor *= this->intensity.getValue();
+    SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
+    // disable ambient contribution from this light source
+    glLightfv(light, GL_AMBIENT, lightcolor.getValue());
+    lightcolor.setRGB(this->color.getValue());
+    lightcolor *= this->intensity.getValue();
 
-  glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
-  glLightfv(light, GL_SPECULAR, lightcolor.getValue());
+    glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
+    glLightfv(light, GL_SPECULAR, lightcolor.getValue());
 
-  SbVec3f loc = this->location.getValue();
+    SbVec3f loc = this->location.getValue();
 
-  // point (or spot) light when w = 1.0
-  SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
-  glLightfv(light, GL_POSITION, posvec.getValue());
-  glLightfv(light, GL_SPOT_DIRECTION, this->direction.getValue().getValue());
+    // point (or spot) light when w = 1.0
+    SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
+    glLightfv(light, GL_POSITION, posvec.getValue());
+    glLightfv(light, GL_SPOT_DIRECTION, this->direction.getValue().getValue());
 
-  float cutoff = this->cutOffAngle.getValue() * 180.0f / float(M_PI);
-  float dropoff = SbClamp(this->dropOffRate.getValue(), 0.0f, 1.0f) * 128.0f;
-  
-#ifdef COIN_EXTRA_DEBUG // output a warning if the cutoff is invalid
-                        // since we now clamp it (someone might have
-                        // been setting it to 180.0, which would make
-                        // this a PointLight)
-  if (cutoff < 0.0f || cutoff > 90.0f) {
-    SoDebugError::postWarning("SoSpotLight::GLRender",
-                              "invalid cutOffAngle for SpotLight: %f, clamping to [0.0f, 90.0f]", cutoff);
+    float cutoff = this->cutOffAngle.getValue() * 180.0f / float(M_PI);
+    float dropoff = SbClamp(this->dropOffRate.getValue(), 0.0f, 1.0f) * 128.0f;
+
+  #ifdef COIN_EXTRA_DEBUG // output a warning if the cutoff is invalid
+                          // since we now clamp it (someone might have
+                          // been setting it to 180.0, which would make
+                          // this a PointLight)
+    if (cutoff < 0.0f || cutoff > 90.0f) {
+      SoDebugError::postWarning("SoSpotLight::GLRender",
+                                "invalid cutOffAngle for SpotLight: %f, clamping to [0.0f, 90.0f]", cutoff);
+    }
+  #endif // COIN_EXTRA_DEBUG
+
+    cutoff = SbClamp(cutoff, 0.0f, 90.0f);
+
+    glLightf(light, GL_SPOT_EXPONENT, dropoff);
+    glLightf(light, GL_SPOT_CUTOFF, cutoff);
   }
-#endif // COIN_EXTRA_DEBUG
-
-  cutoff = SbClamp(cutoff, 0.0f, 90.0f);
-
-  glLightf(light, GL_SPOT_EXPONENT, dropoff);
-  glLightf(light, GL_SPOT_CUTOFF, cutoff);
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }

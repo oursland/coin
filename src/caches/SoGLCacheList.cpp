@@ -460,7 +460,8 @@ void
 SoGLCacheList::open(SoGLRenderAction * action, SbBool autocache)
 {
   // needclose is used to quickly return in close()
-  if (PRIVATE(this)->numcaches == 0 || (autocache && COIN_AUTO_CACHING == 0)) {
+  if (PRIVATE(this)->numcaches == 0 || (autocache && COIN_AUTO_CACHING == 0) ||
+      !sogl_compatibility_profile(action->getState())) {
     PRIVATE(this)->needclose = FALSE;
     return;
   }

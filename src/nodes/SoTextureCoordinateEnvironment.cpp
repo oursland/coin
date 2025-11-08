@@ -222,24 +222,30 @@ SoTextureCoordinateEnvironment::pick(SoPickAction * action)
 void
 SoTextureCoordinateEnvironment::handleTexgen(void * /* data */)
 {
-#if 0 // from red book
-  glTexGenfv(GL_S, GL_SPHERE_MAP, 0);
-  glTexGenfv(GL_T, GL_SPHERE_MAP, 0);
-#else // from siggraph 96
-  glTexGenf(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-  glTexGenf(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
-#endif
+#if defined(COIN_GL_COMPATIBILITY)
+  //if (sogl_compatibility_profile(state)) {
+    #if 0 // from red book
+      glTexGenfv(GL_S, GL_SPHERE_MAP, 0);
+      glTexGenfv(GL_T, GL_SPHERE_MAP, 0);
+    #else // from siggraph 96
+      glTexGenf(GL_S, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+      glTexGenf(GL_T, GL_TEXTURE_GEN_MODE, GL_SPHERE_MAP);
+    #endif
 
-  // supply dummy plane for R and Q so that texture generation works
-  // properly
-  glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-  glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-  
-  float plane[4];
-  plane[0] = 0.0f;
-  plane[1] = 0.0f;
-  plane[2] = 0.0f;
-  plane[3] = 1.0f;
-  glTexGenfv(GL_R, GL_OBJECT_PLANE, plane);
-  glTexGenfv(GL_Q, GL_OBJECT_PLANE, plane);
+      // supply dummy plane for R and Q so that texture generation works
+      // properly
+      glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+      glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+
+      float plane[4];
+      plane[0] = 0.0f;
+      plane[1] = 0.0f;
+      plane[2] = 0.0f;
+      plane[3] = 1.0f;
+      glTexGenfv(GL_R, GL_OBJECT_PLANE, plane);
+      glTexGenfv(GL_Q, GL_OBJECT_PLANE, plane);
+  //}
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }

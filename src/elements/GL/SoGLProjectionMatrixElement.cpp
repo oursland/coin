@@ -47,6 +47,7 @@
 #include <config.h>
 #endif // HAVE_CONFIG_H
 
+#include "rendering/SoGL.h"
 #include <Inventor/system/gl.h>
 
 #include <cassert>
@@ -114,7 +115,9 @@ SoGLProjectionMatrixElement::updategl(void)
 #if 0 // debug
   SoDebugError::postInfo("SoGLProjectionMatrixElement::updategl", "");
 #endif // debug
-  glMatrixMode(GL_PROJECTION);
-  glLoadMatrixf((float*)this->projectionMatrix);
-  glMatrixMode(GL_MODELVIEW);
+  if (sogl_compatibility_profile(state)) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf((float*)this->projectionMatrix);
+    glMatrixMode(GL_MODELVIEW);
+  }
 }

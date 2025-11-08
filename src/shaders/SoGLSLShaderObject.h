@@ -60,6 +60,7 @@ public:
 
   virtual SbBool isLoaded(void) const;
   virtual void load(const char * sourceString);
+  virtual void loadARB(const char * sourceString);
   virtual void unload(void);
 
   void attach(COIN_GLhandle programHandle);

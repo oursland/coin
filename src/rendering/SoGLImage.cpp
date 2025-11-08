@@ -1830,26 +1830,31 @@ SoGLImageP::reallyCreateTexture(SoState *state,
     glTexParameteri(target, GL_TEXTURE_WRAP_T,
                     translate_wrap(state, this->wrapt));
 
-    if (mipmap && (this->flags & SoGLImage::RECTANGLE)) {
-      mipmapimage = FALSE;
-      if (SoGLDriverDatabase::isSupported(glw, "GL_SGIS_generate_mipmap")) {
-        glTexParameteri(target, GL_GENERATE_MIPMAP_SGIS, GL_TRUE);
+    if (sogl_compatibility_profile(state))
+    {
+      if (mipmap && (this->flags & SoGLImage::RECTANGLE)) {
+        mipmapimage = FALSE;
+        if (SoGLDriverDatabase::isSupported(glw, "GL_SGIS_generate_mipmap")) {
+          glTexParameteri(target, GL_GENERATE_MIPMAP_SGIS, GL_TRUE);
+        }
+        else mipmapfilter = FALSE;
       }
-      else mipmapfilter = FALSE;
+      // prefer GL_SGIS_generate_mipmap to glGenerateMipmap. It seems to
+      // be better supported in drivers.
+      else if (mipmap && SoGLDriverDatabase::isSupported(glw, "GL_SGIS_generate_mipmap")) {
+        glTexParameteri(target, GL_GENERATE_MIPMAP_SGIS, GL_TRUE);
+        mipmapimage = FALSE;
+      }
     }
-    // prefer GL_SGIS_generate_mipmap to glGenerateMipmap. It seems to
-    // be better supported in drivers.
-    else if (mipmap && SoGLDriverDatabase::isSupported(glw, "GL_SGIS_generate_mipmap")) {
-      glTexParameteri(target, GL_GENERATE_MIPMAP_SGIS, GL_TRUE);
-      mipmapimage = FALSE;
-    }
-    // using glGenerateMipmap() while creating a display list is not
-    // supported (even if the display list is never used). This is
-    // probably because the OpenGL driver creates each mipmap level by
-    // rendering it using normal OpenGL calls.
-    else if (mipmap && SoGLDriverDatabase::isSupported(glw, SO_GL_GENERATE_MIPMAP) && !state->isCacheOpen()) {
-      mipmapimage = FALSE;
-      generatemipmap = TRUE; // delay until after the texture image is set up
+    if (mipmapimage) {
+      // using glGenerateMipmap() while creating a display list is not
+      // supported (even if the display list is never used). This is
+      // probably because the OpenGL driver creates each mipmap level by
+      // rendering it using normal OpenGL calls.
+      if (mipmap && SoGLDriverDatabase::isSupported(glw, SO_GL_GENERATE_MIPMAP) && !state->isCacheOpen()) {
+        mipmapimage = FALSE;
+        generatemipmap = TRUE; // delay until after the texture image is set up
+      }
     }
     if ((this->quality > COIN_TEX2_ANISOTROPIC_LIMIT) &&
         SoGLDriverDatabase::isSupported(glw, SO_GL_ANISOTROPIC_FILTERING)) {

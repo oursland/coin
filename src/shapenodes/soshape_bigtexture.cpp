@@ -32,6 +32,7 @@
 
 #include "shapenodes/soshape_bigtexture.h"
 #include "coindefs.h"
+#include "rendering/SoGL.h"
 
 #include <cstdlib>
 
@@ -148,63 +149,69 @@ soshape_bigtexture::endShape(SoState * state,
 {
   this->clip_triangles(state);
 
-  // clear texture matrix. We've already calculated the world space
-  // texture coordinates.
-  glMatrixMode(GL_TEXTURE);
-  glPushMatrix();
-  glLoadIdentity();
-  glMatrixMode(GL_MODELVIEW);
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
+    // clear texture matrix. We've already calculated the world space
+    // texture coordinates.
+    glMatrixMode(GL_TEXTURE);
+    glPushMatrix();
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
 
-  // disable texgen functions, we always supply texture coordinates
-  glPushAttrib(GL_ENABLE_BIT);
-  glDisable(GL_TEXTURE_GEN_S);
-  glDisable(GL_TEXTURE_GEN_T);
-  glDisable(GL_TEXTURE_GEN_R);
-  glDisable(GL_TEXTURE_GEN_Q);
+    // disable texgen functions, we always supply texture coordinates
+    glPushAttrib(GL_ENABLE_BIT);
+    glDisable(GL_TEXTURE_GEN_S);
+    glDisable(GL_TEXTURE_GEN_T);
+    glDisable(GL_TEXTURE_GEN_R);
+    glDisable(GL_TEXTURE_GEN_Q);
 
-  const int numreg = this->numregions;
-  for (int i = 0; i < numreg; i++) {
-    int numv, j;
+    const int numreg = this->numregions;
+    for (int i = 0; i < numreg; i++) {
+      int numv, j;
 
-    const bt_region & reg = this->regions[i];
-    int numface = reg.facelist.getLength();
-    if (numface == 0) continue;
+      const bt_region & reg = this->regions[i];
+      int numface = reg.facelist.getLength();
+      if (numface == 0) continue;
 
-    numv = reg.pvlist.getLength();
-    SbBox3f bbox;
-    for (j = 0; j < numv; j++) {
-      bbox.extendBy(reg.pvlist[j]->getPoint());
-    }
-    SbVec2s rectsize;
-    shape->getScreenSize(state, bbox, rectsize);
-    this->image->applySubImage(state, i, this->quality, rectsize);
-    int vcnt = 0;
-    for (j = 0; j < numface; j++) {
-      glBegin(GL_TRIANGLE_FAN);
-      numv = reg.facelist[j];
-      for (int k = 0; k < numv; k++) {
-        SoPrimitiveVertex * v = reg.pvlist[vcnt++];
-        SbVec4f tc = v->getTextureCoords();
-        tc[0] -= reg.start[0];
-        tc[1] -= reg.start[1];
-        tc[0] /= (reg.end[0]-reg.start[0]);
-        tc[1] /= (reg.end[1]-reg.start[1]);
-        glTexCoord4fv(tc.getValue());
-        glNormal3fv(v->getNormal().getValue());
-        mb.send(v->getMaterialIndex(), TRUE);
-        glVertex3fv(v->getPoint().getValue());
+      numv = reg.pvlist.getLength();
+      SbBox3f bbox;
+      for (j = 0; j < numv; j++) {
+        bbox.extendBy(reg.pvlist[j]->getPoint());
       }
-      glEnd();
+      SbVec2s rectsize;
+      shape->getScreenSize(state, bbox, rectsize);
+      this->image->applySubImage(state, i, this->quality, rectsize);
+      int vcnt = 0;
+      for (j = 0; j < numface; j++) {
+        glBegin(GL_TRIANGLE_FAN);
+        numv = reg.facelist[j];
+        for (int k = 0; k < numv; k++) {
+          SoPrimitiveVertex * v = reg.pvlist[vcnt++];
+          SbVec4f tc = v->getTextureCoords();
+          tc[0] -= reg.start[0];
+          tc[1] -= reg.start[1];
+          tc[0] /= (reg.end[0]-reg.start[0]);
+          tc[1] /= (reg.end[1]-reg.start[1]);
+          glTexCoord4fv(tc.getValue());
+          glNormal3fv(v->getNormal().getValue());
+          mb.send(v->getMaterialIndex(), TRUE);
+          glVertex3fv(v->getPoint().getValue());
+        }
+        glEnd();
+      }
     }
+
+    // enable texgen (if active)
+    glPopAttrib();
+
+    // restore texture matrix
+    glMatrixMode(GL_TEXTURE);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
   }
-
-  // enable texgen (if active)
-  glPopAttrib();
-
-  // restore texture matrix
-  glMatrixMode(GL_TEXTURE);
-  glPopMatrix();
-  glMatrixMode(GL_MODELVIEW);
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
   // return TRUE if all textures were created in the correct resolution
   return ! this->image->exceededChangeLimit();

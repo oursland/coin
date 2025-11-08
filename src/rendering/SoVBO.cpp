@@ -39,6 +39,7 @@
 
 */
 
+#include "rendering/SoGL.h"
 #include "rendering/SoVBO.h"
 
 #include <cstdio>
@@ -53,6 +54,7 @@
 #include <Inventor/SbVec3f.h>
 #include <Inventor/errors/SoDebugError.h>
 
+#include "Inventor/C/glue/gl.h"
 #include "rendering/SoVertexArrayIndexer.h"
 #include "threads/threadsutilp.h"
 #include "glue/glp.h"
@@ -67,7 +69,7 @@ static int vbo_debug = -1;
 // VBO rendering seems to be faster than other rendering, even for
 // large VBOs. Just set the default limit very high
 static const int DEFAULT_MAX_LIMIT = 100000000;
-static const int DEFAULT_MIN_LIMIT = 20;
+static const int DEFAULT_MIN_LIMIT = 0;
 
 static SbHash<uint32_t, SbBool> * vbo_isfast_hash;
 
@@ -295,30 +297,32 @@ SoVBO::getBufferData(const GLvoid *& data, intptr_t & size)
   Binds the buffer for the context \a contextid.
 */
 void
-SoVBO::bindBuffer(uint32_t contextid)
+SoVBO::bindBuffer(uint32_t contextid, uint8_t stream)
 {
   if ((this->data == NULL) ||
       (this->datasize == 0)) {
-    assert(0 && "no data in buffer");
+    // assert(0 && "no data in buffer");
     return;
   }
 
-  const cc_glglue * glue = cc_glglue_instance((int) contextid);
+  if (SoRenderer::isOpenGL()) {
+    const cc_glglue * glue = cc_glglue_instance((int) contextid);
 
-  GLuint buffer;
-  if (!this->vbohash.get(contextid, buffer)) {
-    // need to create a new buffer for this context
-    cc_glglue_glGenBuffers(glue, 1, &buffer);
-    cc_glglue_glBindBuffer(glue, this->target, buffer);
-    cc_glglue_glBufferData(glue, this->target,
-                           this->datasize,
-                           this->data,
-                           this->usage);
-    this->vbohash.put(contextid, buffer);
-  }
-  else {
-    // buffer already exists, bind it
-    cc_glglue_glBindBuffer(glue, this->target, buffer);
+    GLuint buffer;
+    if (!this->vbohash.get(contextid, buffer)) {
+      // need to create a new buffer for this context
+      cc_glglue_glGenBuffers(glue, 1, &buffer);
+      cc_glglue_glBindBuffer(glue, this->target, buffer);
+      cc_glglue_glBufferData(glue, this->target,
+                            this->datasize,
+                            this->data,
+                            this->usage);
+      this->vbohash.put(contextid, buffer);
+    }
+    else {
+      // buffer already exists, bind it
+      cc_glglue_glBindBuffer(glue, this->target, buffer);
+    }
   }
 
 #if COIN_DEBUG
@@ -392,6 +396,13 @@ SoVBO::getVertexCountMaxLimit(void)
 SbBool
 SoVBO::shouldCreateVBO(SoState * state, const uint32_t contextid, const int numdata)
 {
+#if !defined(COIN_GL_COMPATIBILITY)
+  return TRUE;
+#else
+  if (!sogl_compatibility_profile(state)) {
+    return TRUE;
+  }
+
   if (!vbo_enabled || !vbo_render_as_vertex_arrays) return FALSE;
   int minv = SoVBO::getVertexCountMinLimit();
   int maxv = SoVBO::getVertexCountMaxLimit();
@@ -400,7 +411,7 @@ SoVBO::shouldCreateVBO(SoState * state, const uint32_t contextid, const int numd
     (numdata <= maxv) &&
     SoVBO::isVBOFast(contextid) &&
     !(SoShapeStyleElement::get(state)->getFlags() & SoShapeStyleElement::SHADOWMAP);
-
+#endif
 }
 
 SbBool

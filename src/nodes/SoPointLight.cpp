@@ -73,6 +73,7 @@
 #include <Inventor/system/gl.h>
 
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 
 // *************************************************************************
 
@@ -133,31 +134,37 @@ SoPointLight::GLRender(SoGLRenderAction * action)
 
   SoLightElement::add(state, this, SoModelMatrixElement::get(state) *
                       SoViewingMatrixElement::get(state));
-  
-  GLenum light = (GLenum) (idx + GL_LIGHT0);
 
-  SbVec3f attenuation = SoEnvironmentElement::getLightAttenuation(state);
-  glLightf(light, GL_QUADRATIC_ATTENUATION, attenuation[0]);
-  glLightf(light, GL_LINEAR_ATTENUATION, attenuation[1]);
-  glLightf(light, GL_CONSTANT_ATTENUATION, attenuation[2]);
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
+    GLenum light = (GLenum) (idx + GL_LIGHT0);
 
-  SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
-  // disable ambient contribution from this light source
-  glLightfv(light, GL_AMBIENT, lightcolor.getValue());
+    SbVec3f attenuation = SoEnvironmentElement::getLightAttenuation(state);
+    glLightf(light, GL_QUADRATIC_ATTENUATION, attenuation[0]);
+    glLightf(light, GL_LINEAR_ATTENUATION, attenuation[1]);
+    glLightf(light, GL_CONSTANT_ATTENUATION, attenuation[2]);
 
-  lightcolor.setRGB(this->color.getValue());
-  lightcolor *= this->intensity.getValue();
+    SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
+    // disable ambient contribution from this light source
+    glLightfv(light, GL_AMBIENT, lightcolor.getValue());
 
-  glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
-  glLightfv(light, GL_SPECULAR, lightcolor.getValue());
+    lightcolor.setRGB(this->color.getValue());
+    lightcolor *= this->intensity.getValue();
 
-  SbVec3f loc = this->location.getValue();
+    glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
+    glLightfv(light, GL_SPECULAR, lightcolor.getValue());
 
-  // point (or spot) light when w = 1.0
-  SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
-  glLightfv(light, GL_POSITION, posvec.getValue());
+    SbVec3f loc = this->location.getValue();
 
-  // turning off spot light properties for ordinary lights
-  glLightf(light, GL_SPOT_EXPONENT, 0.0);
-  glLightf(light, GL_SPOT_CUTOFF, 180.0);
+    // point (or spot) light when w = 1.0
+    SbVec4f posvec(loc[0], loc[1], loc[2], 1.0f);
+    glLightfv(light, GL_POSITION, posvec.getValue());
+
+    // turning off spot light properties for ordinary lights
+    glLightf(light, GL_SPOT_EXPONENT, 0.0);
+    glLightf(light, GL_SPOT_CUTOFF, 180.0);
+  }
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }

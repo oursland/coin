@@ -600,8 +600,10 @@ public:
   void eyeLinearTexgen();
 
   // NVIDIA specific methods for sorted layers blend
+#if defined(COIN_GL_COMPATIBILITY)
   void setupRegisterCombinersNV();
   void renderSortedLayersNV(const SoState * state);
+#endif
 
   // ARB_fragment_program specific methods for sorted layers blend
   void setupFragmentProgram();
@@ -1081,10 +1083,14 @@ SoGLRenderAction::beginTraversal(SoNode * node)
   if (PRIVATE(this)->needglinit) {
     PRIVATE(this)->needglinit = FALSE;
 
-    // we are always using GL_COLOR_MATERIAL in Coin
-    glColorMaterial(GL_FRONT_AND_BACK, GL_DIFFUSE);
-    glEnable(GL_COLOR_MATERIAL);
-    glEnable(GL_NORMALIZE);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(this->state)) {
+      // we are always using GL_COLOR_MATERIAL in Coin
+      glColorMaterial(GL_FRONT_AND_BACK, GL_DIFFUSE);
+      glEnable(GL_COLOR_MATERIAL);
+      glEnable(GL_NORMALIZE);
+    }
+#endif
 
     // initialize the depth function to the default Coin/Inventor
     // value.  SoGLDepthBufferElement doesn't check for this, it just
@@ -1095,12 +1101,16 @@ SoGLRenderAction::beginTraversal(SoNode * node)
     glDepthFunc(GL_LEQUAL);
 
     if (PRIVATE(this)->smoothing) {
-      glEnable(GL_POINT_SMOOTH);
-      glEnable(GL_LINE_SMOOTH);
+      if (sogl_compatibility_profile(this->state)) {
+        glEnable(GL_POINT_SMOOTH);
+        glEnable(GL_LINE_SMOOTH);
+      }
     }
     else {
-      glDisable(GL_POINT_SMOOTH);
-      glDisable(GL_LINE_SMOOTH);
+      if (sogl_compatibility_profile(this->state)) {
+        glDisable(GL_POINT_SMOOTH);
+        glDisable(GL_LINE_SMOOTH);
+      }
     }
   }
 
@@ -1784,6 +1794,8 @@ SoGLRenderActionP::renderMulti(SoNode * node)
   this->currentpass = 0;
   this->renderSingle(node);
   if (this->action->hasTerminated()) return;
+
+#if defined(COIN_GL_COMPATIBILITY)
   glAccum(GL_LOAD, fraction);
 
   for (int i = 1; i < this->numpasses; i++) {
@@ -1803,6 +1815,9 @@ SoGLRenderActionP::renderMulti(SoNode * node)
   }
   this->currentpass = storedpass;
   glAccum(GL_RETURN, 1.0f);
+#else
+  assert(0 && "Not implemented yet");
+#endif
 }
 
 //
@@ -1854,7 +1869,6 @@ SoGLRenderActionP::renderSingle(SoNode * node)
       this->transparencytype = SoGLRenderAction::SORTED_OBJECT_BLEND;
       render(node); // Render again using the fallback transparency type.
     }
-
     return;
   }
 
@@ -2096,22 +2110,26 @@ SoGLRenderActionP::texgenEnable(SbBool enable)
 void
 SoGLRenderActionP::eyeLinearTexgen()
 {
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(action->getState())) {
+    const float col1[] = { 1, 0, 0, 0 };
+    const float col2[] = { 0, 1, 0, 0 };
+    const float col3[] = { 0, 0, 1, 0 };
+    const float col4[] = { 0, 0, 0, 1 };
 
-  const float col1[] = { 1, 0, 0, 0 };
-  const float col2[] = { 0, 1, 0, 0 };
-  const float col3[] = { 0, 0, 1, 0 };
-  const float col4[] = { 0, 0, 0, 1 };
+    glTexGenfv(GL_S,GL_EYE_PLANE, col1);
+    glTexGenfv(GL_T,GL_EYE_PLANE, col2);
+    glTexGenfv(GL_R,GL_EYE_PLANE, col3);
+    glTexGenfv(GL_Q,GL_EYE_PLANE, col4);
 
-  glTexGenfv(GL_S,GL_EYE_PLANE, col1);
-  glTexGenfv(GL_T,GL_EYE_PLANE, col2);
-  glTexGenfv(GL_R,GL_EYE_PLANE, col3);
-  glTexGenfv(GL_Q,GL_EYE_PLANE, col4);
-
-  glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
-  glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
-  glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
-  glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
-
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
+    glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
+    glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_EYE_LINEAR);
+  }
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }
 
 void
@@ -2295,7 +2313,7 @@ SoGLRenderActionP::setupFragmentProgram()
 
 }
 
-
+#if defined(COIN_GL_COMPATIBILITY)
 void
 SoGLRenderActionP::setupRegisterCombinersNV()
 {
@@ -2438,6 +2456,7 @@ SoGLRenderActionP::setupRegisterCombinersNV()
 
   glMatrixMode(GL_MODELVIEW);
 }
+#endif
 
 void
 SoGLRenderActionP::setupSortedLayersBlendTextures(const SoState * state)

@@ -59,6 +59,7 @@
 
 #include <Inventor/system/gl.h>
 #include "elements/GL/SoResetMatrixElement.h"
+#include "rendering/SoGL.h"
 
 SO_ELEMENT_SOURCE(SoGLViewingMatrixElement);
 
@@ -147,7 +148,9 @@ SoGLViewingMatrixElement::updategl(void)
   if (!this->mmidentity) {
     mat.multRight(this->modelmatrix);
   }
-  glLoadMatrixf((float*)mat);
+  if (sogl_compatibility_profile(this->state)) {
+    glLoadMatrixf((float*)mat);
+  }
 }
 
 /*!

@@ -187,21 +187,27 @@ SoTextureCoordinateObject::pick(SoPickAction * action)
 void
 SoTextureCoordinateObject::handleTexgen(void * data)
 {
-  SoTextureCoordinateObject *thisp = (SoTextureCoordinateObject*)data;
-  glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-  glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-  glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
-  glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+#if defined(COIN_GL_COMPATIBILITY)
+  //if (sogl_compatibility_profile(state)) {
+    SoTextureCoordinateObject *thisp = (SoTextureCoordinateObject*)data;
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+    glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+    glTexGeni(GL_Q, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
 
-  const SbVec4f & s = thisp->factorS.getValue();
-  glTexGenfv(GL_S, GL_OBJECT_PLANE, s.getValue());
+    const SbVec4f & s = thisp->factorS.getValue();
+    glTexGenfv(GL_S, GL_OBJECT_PLANE, s.getValue());
 
-  const SbVec4f & t = thisp->factorT.getValue();
-  glTexGenfv(GL_T, GL_OBJECT_PLANE, t.getValue());
-  
-  const SbVec4f & r = thisp->factorR.getValue();
-  glTexGenfv(GL_R, GL_OBJECT_PLANE, r.getValue());
+    const SbVec4f & t = thisp->factorT.getValue();
+    glTexGenfv(GL_T, GL_OBJECT_PLANE, t.getValue());
 
-  const SbVec4f & q = thisp->factorQ.getValue();
-  glTexGenfv(GL_Q, GL_OBJECT_PLANE, q.getValue());
+    const SbVec4f & r = thisp->factorR.getValue();
+    glTexGenfv(GL_R, GL_OBJECT_PLANE, r.getValue());
+
+    const SbVec4f & q = thisp->factorQ.getValue();
+    glTexGenfv(GL_Q, GL_OBJECT_PLANE, q.getValue());
+  //}
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }

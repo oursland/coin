@@ -295,9 +295,15 @@ SoIndexedMarkerSet::GLRender(SoGLRenderAction * action)
     //built-in markers. Currently there is no way of fetching a marker's
     //alignment from outside the SoMarkerSet class though. 20090424 wiesener
     int align = (marker >= SoMarkerSet::NUM_MARKERS) ? 1 : 4;
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, align);
     glRasterPos3f(point[0], point[1], -point[2]);
     glBitmap(size[0], size[1], 0, 0, 0, 0, bytes);
+  }
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
   }
 
   for (GLint i = 0; i < numPlanes; ++i) {

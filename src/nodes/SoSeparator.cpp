@@ -657,7 +657,8 @@ SoSeparator::GLRenderBelowPath(SoGLRenderAction * action)
   SbBool didcull = FALSE;
 
   SoGLCacheList * createcache = NULL;
-  if ((this->renderCaching.getValue() != OFF) &&
+  if (SoRenderer::isOpenGL() &&
+      (this->renderCaching.getValue() != OFF && sogl_compatibility_profile(state)) &&
       (SoSeparator::getNumRenderCaches() > 0)) {
 
     // test if bbox is outside view-volume
@@ -723,26 +724,28 @@ SoSeparator::GLRenderBelowPath(SoGLRenderAction * action)
         profiling.postTraversal(action);
       }
 
+      if (SoRenderer::isOpenGL()) {
 #if COIN_DEBUG
-      // The GL error test is default disabled for this optimized
-      // path.  If you get a GL error reporting an error in the
-      // Separator node, enable this code by setting the environment
-      // variable COIN_GLERROR_DEBUGGING to "1" to see exactly which
-      // node caused the error.
-      static SbBool chkglerr = sogl_glerror_debugging();
-      if (chkglerr) {
-        cc_string str;
-        cc_string_construct(&str);
-        const unsigned int errs = coin_catch_gl_errors(&str);
-        if (errs > 0) {
-          SoDebugError::post("SoSeparator::GLRenderBelowPath",
-                             "GL error: '%s', nodetype: %s",
-                             cc_string_get_text(&str),
-                             (*this->children)[i]->getTypeId().getName().getString());
+        // The GL error test is default disabled for this optimized
+        // path.  If you get a GL error reporting an error in the
+        // Separator node, enable this code by setting the environment
+        // variable COIN_GLERROR_DEBUGGING to "1" to see exactly which
+        // node caused the error.
+        static SbBool chkglerr = sogl_glerror_debugging();
+        if (chkglerr) {
+          cc_string str;
+          cc_string_construct(&str);
+          const unsigned int errs = coin_catch_gl_errors(&str);
+          if (errs > 0) {
+            SoDebugError::post("SoSeparator::GLRenderBelowPath",
+                              "GL error: '%s', nodetype: %s",
+                              cc_string_get_text(&str),
+                              (*this->children)[i]->getTypeId().getName().getString());
+          }
+          cc_string_clean(&str);
         }
-        cc_string_clean(&str);
-      }
 #endif // COIN_DEBUG
+      }
     }
     action->popCurPath();
   }

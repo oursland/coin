@@ -67,6 +67,7 @@
 */
 
 #include <Inventor/nodes/SoCube.h>
+#include "Inventor/SbVec2f.h"
 #include "coindefs.h"
 
 #include <Inventor/SbPlane.h>
@@ -80,12 +81,15 @@
 #include <Inventor/elements/SoGLMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoMaterialBindingElement.h>
 #include <Inventor/elements/SoMultiTextureCoordinateElement.h>
+#include <Inventor/elements/SoShapeStyleElement.h>
 #include <Inventor/misc/SoState.h>
+#include <Inventor/system/renderer.h>
 
 #include "nodes/SoSubNodeP.h"
 #include "rendering/SoGL.h"
 #include "misc/SoGenerate.h"
 #include "misc/SoPick.h"
+
 
 /*!
   \var SoSFFloat SoCube::width
@@ -133,58 +137,68 @@ SoCube::initClass(void)
   SO_NODE_INTERNAL_INIT_CLASS(SoCube, SO_FROM_INVENTOR_1|SoNode::VRML1);
 }
 
+
 // Doc in parent.
 void
 SoCube::GLRender(SoGLRenderAction * action)
 {
   if (!this->shouldGLRender(action)) return;
+
   SoState * state = action->getState();
 
-  SoMaterialBindingElement::Binding binding =
-    SoMaterialBindingElement::get(state);
-
-  SbBool materialPerPart =
-    (binding == SoMaterialBindingElement::PER_PART ||
-     binding == SoMaterialBindingElement::PER_PART_INDEXED ||
-     binding == SoMaterialBindingElement::PER_FACE ||
-     binding == SoMaterialBindingElement::PER_FACE_INDEXED);
-
-  SbBool doTextures = FALSE;
-  SbBool do3DTextures = FALSE;
-  if (SoGLMultiTextureEnabledElement::get(state, 0)) {
-    doTextures = TRUE;
-    if (SoGLMultiTextureEnabledElement::getMode(state,0) ==
-        SoMultiTextureEnabledElement::TEXTURE3D) {
-      do3DTextures = TRUE;
-    }
+  const SoShapeStyleElement * shapestyle = SoShapeStyleElement::get(state);
+  unsigned int shapestyleflags = shapestyle->getFlags();
+  if (shapestyleflags & SoShapeStyleElement::VERTEXARRAY) {
+    return SoShape::GLRender(action);
   }
 
-  SoMaterialBundle mb(action);
-  mb.sendFirst();
+  if (SoRenderer::isOpenGL()) {
+    SoMaterialBindingElement::Binding binding =
+      SoMaterialBindingElement::get(state);
 
-  SbBool sendNormals = !mb.isColorOnly() ||
-    (SoMultiTextureCoordinateElement::getType(state) == SoMultiTextureCoordinateElement::FUNCTION);
+    SbBool materialPerPart =
+      (binding == SoMaterialBindingElement::PER_PART ||
+      binding == SoMaterialBindingElement::PER_PART_INDEXED ||
+      binding == SoMaterialBindingElement::PER_FACE ||
+      binding == SoMaterialBindingElement::PER_FACE_INDEXED);
 
-  unsigned int flags = 0;
-  if (materialPerPart) flags |= SOGL_MATERIAL_PER_PART;
-  if (doTextures) {
-    switch (SoMultiTextureEnabledElement::getMode(state, 0)) {
-    default:
-      flags |= SOGL_NEED_TEXCOORDS;
-      break;
-    case SoMultiTextureEnabledElement::CUBEMAP:
-      flags |= SOGL_NEED_3DTEXCOORDS;
-      break;
+    SbBool doTextures = FALSE;
+    SbBool do3DTextures = FALSE;
+    if (SoGLMultiTextureEnabledElement::get(state, 0)) {
+      doTextures = TRUE;
+      if (SoGLMultiTextureEnabledElement::getMode(state,0) ==
+          SoMultiTextureEnabledElement::TEXTURE3D) {
+        do3DTextures = TRUE;
+      }
     }
-  }
-  else if (do3DTextures) flags |= SOGL_NEED_3DTEXCOORDS;
-  if (sendNormals) flags |= SOGL_NEED_NORMALS;
 
-  sogl_render_cube(width.getValue(),
-                   height.getValue(),
-                   depth.getValue(),
-                   &mb,
-                   flags, state);
+    SoMaterialBundle mb(action);
+    mb.sendFirst();
+
+    SbBool sendNormals = !mb.isColorOnly() ||
+      (SoMultiTextureCoordinateElement::getType(state) == SoMultiTextureCoordinateElement::FUNCTION);
+
+    unsigned int flags = 0;
+    if (materialPerPart) flags |= SOGL_MATERIAL_PER_PART;
+    if (doTextures) {
+      switch (SoMultiTextureEnabledElement::getMode(state, 0)) {
+      default:
+        flags |= SOGL_NEED_TEXCOORDS;
+        break;
+      case SoMultiTextureEnabledElement::CUBEMAP:
+        flags |= SOGL_NEED_3DTEXCOORDS;
+        break;
+      }
+    }
+    else if (do3DTextures) flags |= SOGL_NEED_3DTEXCOORDS;
+    if (sendNormals) flags |= SOGL_NEED_NORMALS;
+
+    sogl_render_cube(width.getValue(),
+                    height.getValue(),
+                    depth.getValue(),
+                    &mb,
+                    flags, state);
+  }
 }
 
 // Doc in parent.

@@ -172,6 +172,7 @@
 #include <Inventor/system/gl.h>
 
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 #include "glue/GLUWrapper.h"
 #include "glue/simage_wrapper.h"
 
@@ -461,8 +462,14 @@ SoImage::GLRender(SoGLRenderAction * action)
     zx = float(size[0]) / float(orgsize[0]);
     zy = float(size[1]) / float(orgsize[1]);
 
-    // update GL
-    glPixelZoom(zx, zy);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      // update GL
+      glPixelZoom(zx, zy);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
     // adjust glDrawPixels and glPixelStorage parameters to account for zoom
     srcw = (int) (srcw / zx);
@@ -488,7 +495,13 @@ SoImage::GLRender(SoGLRenderAction * action)
   offvp = offvp || ypos < 0 ? TRUE : FALSE;
   GLfloat offsety = ypos >= 0 ? 0.0f : ypos;
 
-  glRasterPos3f(rpx, rpy, -nilpoint[2]);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      glRasterPos3f(rpx, rpy, -nilpoint[2]);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
   if (offvp) { glBitmap(0,0,0,0,offsetx,offsety,NULL); }
 
@@ -499,8 +512,14 @@ SoImage::GLRender(SoGLRenderAction * action)
   glPixelStorei(GL_PACK_ALIGNMENT, 1);
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-  glDrawPixels(srcw, srch, format, GL_UNSIGNED_BYTE,
-               (const GLvoid*) dataptr);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      glDrawPixels(srcw, srch, format, GL_UNSIGNED_BYTE,
+                  (const GLvoid*) dataptr);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
   glMatrixMode(GL_PROJECTION);
   glPopMatrix();
@@ -508,8 +527,14 @@ SoImage::GLRender(SoGLRenderAction * action)
   glPopMatrix();
 
   if (orgsize != size) {
-    // restore zoom
-    glPixelZoom(oldzx, oldzy);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      // restore zoom
+      glPixelZoom(oldzx, oldzy);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
   }
 
   // restore to default values

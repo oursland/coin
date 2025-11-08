@@ -101,6 +101,7 @@
 #include "coindefs.h" // COIN_OBSOLETED
 #include "tidbitsp.h"
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 
 /*!
   \enum SoMarkerSet::MarkerType
@@ -1255,9 +1256,15 @@ SoMarkerSet::GLRender(SoGLRenderAction * action)
     point[0] = point[0] - (tmp->width - 1) / 2;
     point[1] = point[1] - (tmp->height - 1) / 2;
 
+#if defined(COIN_GL_COMPATIBILITY)
+  if (sogl_compatibility_profile(state)) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, tmp->align);
     glRasterPos3f(point[0], point[1], -point[2]);
     glBitmap(tmp->width, tmp->height, 0, 0, 0, 0, tmp->data);
+  }
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
   }
 
   for (GLint i = 0; i < numPlanes; ++i) {

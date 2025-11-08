@@ -56,7 +56,7 @@ protected:
 
 private:
   void updategl();
-
+  SoState * state;
 };
 
 #endif // !COIN_SOGLLINEPATTERNELEMENT_H

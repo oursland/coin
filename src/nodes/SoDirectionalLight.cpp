@@ -107,6 +107,7 @@
 #include <Inventor/system/gl.h>
 
 #include "nodes/SoSubNodeP.h"
+#include "rendering/SoGL.h"
 
 // *************************************************************************
 
@@ -157,50 +158,73 @@ SoDirectionalLight::GLRender(SoGLRenderAction * action)
 {
   if (!this->on.getValue()) return;
 
-  SoState * state = action->getState();
-  int idx = SoGLLightIdElement::increment(state);
+  if (SoRenderer::isOpenGL()) {
+    SoState * state = action->getState();
+    int idx = SoGLLightIdElement::increment(state);
 
-  if (idx < 0) {
+    if (idx < 0) {
 #if COIN_DEBUG
-    SoDebugError::postWarning("SoDirectionalLight::GLRender",
-                              "Max # of OpenGL lights exceeded :(");
+      SoDebugError::postWarning("SoDirectionalLight::GLRender",
+                                "Max # of OpenGL lights exceeded :(");
 #endif // COIN_DEBUG
-    return;
+      return;
+    }
+
+    SoLightElement::add(state, this, SoModelMatrixElement::get(state) * 
+                        SoViewingMatrixElement::get(state));
+    
+    GLenum light = (GLenum) (idx + GL_LIGHT0);
+    
+    SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
+    // disable ambient contribution from this light source
+    if (SoRenderer::isOpenGL()) {
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(state)) {
+        glLightfv(light, GL_AMBIENT, lightcolor.getValue());
+      }
+#else
+      assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
+    }
+
+    lightcolor.setRGB(this->color.getValue());
+    lightcolor *= this->intensity.getValue();
+
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
+      glLightfv(light, GL_SPECULAR, lightcolor.getValue());
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
+
+    // GL directional light is specified towards light source
+    SbVec3f dir = - this->direction.getValue();
+    if (dir.normalize() == 0.0f) {
+  #if COIN_DEBUG
+      SoDebugError::postWarning("SoDirectionalLight::GLRender",
+                                "Direction is a null vector.");
+  #endif // COIN_DEBUG
+    }
+
+    // directional when w = 0.0
+    SbVec4f dirvec(dir[0], dir[1], dir[2], 0.0f);
+
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      glLightfv(light, GL_POSITION, dirvec.getValue());
+
+      glLightf(light, GL_SPOT_EXPONENT, 0.0);
+      glLightf(light, GL_SPOT_CUTOFF, 180.0);
+      glLightf(light, GL_CONSTANT_ATTENUATION, 1);
+      glLightf(light, GL_LINEAR_ATTENUATION, 0);
+      glLightf(light, GL_QUADRATIC_ATTENUATION, 0);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
   }
-
-
-  SoLightElement::add(state, this, SoModelMatrixElement::get(state) * 
-                      SoViewingMatrixElement::get(state));
-  
-  GLenum light = (GLenum) (idx + GL_LIGHT0);
-  
-  SbColor4f lightcolor(0.0f, 0.0f, 0.0f, 1.0f);
-  // disable ambient contribution from this light source
-  glLightfv(light, GL_AMBIENT, lightcolor.getValue()); 
-  
-  lightcolor.setRGB(this->color.getValue());
-  lightcolor *= this->intensity.getValue();
-
-  glLightfv(light, GL_DIFFUSE, lightcolor.getValue());
-  glLightfv(light, GL_SPECULAR, lightcolor.getValue());
-
-  // GL directional light is specified towards light source
-  SbVec3f dir = - this->direction.getValue();
-  if (dir.normalize() == 0.0f) {
-#if COIN_DEBUG
-    SoDebugError::postWarning("SoDirectionalLight::GLRender",
-                              "Direction is a null vector.");
-#endif // COIN_DEBUG
-  }
-  // directional when w = 0.0
-  SbVec4f dirvec(dir[0], dir[1], dir[2], 0.0f);
-  glLightfv(light, GL_POSITION, dirvec.getValue());
-
-  glLightf(light, GL_SPOT_EXPONENT, 0.0);
-  glLightf(light, GL_SPOT_CUTOFF, 180.0);
-  glLightf(light, GL_CONSTANT_ATTENUATION, 1);
-  glLightf(light, GL_LINEAR_ATTENUATION, 0);
-  glLightf(light, GL_QUADRATIC_ATTENUATION, 0);
 }
 
 // *************************************************************************

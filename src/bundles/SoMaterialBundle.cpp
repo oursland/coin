@@ -44,6 +44,7 @@
 #include <Inventor/bundles/SoMaterialBundle.h>
 #include <Inventor/elements/SoGLLazyElement.h>
 #include <Inventor/misc/SoState.h>
+#include <Inventor/system/renderer.h>
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -76,9 +77,11 @@ SoMaterialBundle::SoMaterialBundle(SoAction *action)
   if (SoLazyElement::getLightModel(this->state) == SoLazyElement::BASE_COLOR) 
     this->coloronly |= FLAG_COLORONLY;
 
-  const cc_glglue * glue = sogl_glue_instance(this->state);
-  if (glue->nvidia_color_per_face_bug) {
-    this->coloronly |= FLAG_NVIDIA_BUG;
+  if (SoRenderer::isOpenGL()) {
+    const cc_glglue * glue = sogl_glue_instance(this->state);
+    if (glue->nvidia_color_per_face_bug) {
+      this->coloronly |= FLAG_NVIDIA_BUG;
+    }
   }
 }
 

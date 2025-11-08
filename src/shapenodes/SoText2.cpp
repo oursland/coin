@@ -141,6 +141,7 @@
 
 #include "nodes/SoSubNodeP.h"
 #include "caches/SoGlyphCache.h"
+#include "rendering/SoGL.h"
 
 // The "lean and mean" define is a workaround for a Cygwin bug: when
 // windows.h is included _after_ one of the X11 or GLX headers above
@@ -414,8 +415,14 @@ SoText2::GLRender(SoGLRenderAction * action)
     // disable textures for all units
     SoGLMultiTextureEnabledElement::disableAll(state);
 
-    glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT);
-    glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      glPushAttrib(GL_ENABLE_BIT | GL_PIXEL_MODE_BIT | GL_COLOR_BUFFER_BIT);
+      glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 
     SbBool drawPixelBuffer = FALSE;
 
@@ -465,7 +472,14 @@ SoText2::GLRender(SoGLRenderAction * action)
         if (buffer) {
           if (cc_glyph2d_getmono(glyph)) {
             SoText2P::setRasterPos3f((float)rasterx + textscreenoffsetx, (float)rastery + (int)nilpoint[1], -nilpoint[2]);
-            glBitmap(ix,iy,0,0,0,0,(const GLubyte *)buffer);
+
+#if defined(COIN_GL_COMPATIBILITY)
+            if (sogl_compatibility_profile(state)) {
+              glBitmap(ix,iy,0,0,0,0,(const GLubyte *)buffer);
+            }
+#else
+            assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
           }
           else {
             if (!drawPixelBuffer) {
@@ -542,12 +556,25 @@ SoText2::GLRender(SoGLRenderAction * action)
       rastery = (int)floor(nilpoint[1]+0.5) - bbsize[1] + bbmax[1];
 
       SoText2P::setRasterPos3f((GLfloat)floor(textscreenoffsetx+0.5), (GLfloat)rastery, -nilpoint[2]);
-      glDrawPixels(bbsize[0], bbsize[1], GL_RGBA, GL_UNSIGNED_BYTE, (const GLubyte *)PRIVATE(this)->pixel_buffer);
+
+#if defined(COIN_GL_COMPATIBILITY)
+      if (sogl_compatibility_profile(state)) {
+        glDrawPixels(bbsize[0], bbsize[1], GL_RGBA, GL_UNSIGNED_BYTE, (const GLubyte *)PRIVATE(this)->pixel_buffer);
+      }
+#else
+      assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     }
 
-    // pop old state
-    glPopClientAttrib();
-    glPopAttrib();
+#if defined(COIN_GL_COMPATIBILITY)
+    if (sogl_compatibility_profile(state)) {
+      // pop old state
+      glPopClientAttrib();
+      glPopAttrib();
+    }
+#else
+    assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
     state->pop();
 
     glPixelStorei(GL_UNPACK_ALIGNMENT,4);
@@ -980,8 +1007,14 @@ SoText2P::setRasterPos3f(GLfloat x, GLfloat y, GLfloat z)
   offvp = offvp || y < 0 ? 1 : 0;
   float offsety = y >= 0 ? 0 : y;
 
-  glRasterPos3f(rpx,rpy,z);
-  if (offvp) { glBitmap(0, 0, 0, 0,offsetx,offsety, NULL); }
+#if defined(COIN_GL_COMPATIBILITY)
+  //if (sogl_compatibility_profile(state)) {
+    glRasterPos3f(rpx,rpy,z);
+    if (offvp) { glBitmap(0, 0, 0, 0,offsetx,offsety, NULL); }
+  //}
+#else
+  assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
 }
 
 #undef PRIVATE

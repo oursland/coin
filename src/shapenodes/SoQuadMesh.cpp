@@ -622,7 +622,13 @@ namespace { namespace SoGL { namespace QuadMesh {
           if (TexturingEnabled == TRUE) {
             // tb->send(?curridx?, cc, nc) was replaced by
             // glTexCoord for center vertex
-            glTexCoord4fv((const GLfloat*)&tc);
+#if defined(COIN_GL_COMPATIBILITY)
+            //if (sogl_compatibility_profile(state)) {
+              glTexCoord4fv((const GLfloat*)&tc);
+            //}
+#else
+            assert(0 && "Not implemented for non-compatibility GL renderer");
+#endif
           }
           if (is3d) {
             glVertex3fv((const GLfloat*)&ccd3);
