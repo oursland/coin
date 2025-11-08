@@ -1,3 +1,6 @@
+#ifndef COIN_SYSTEM_RENDERER_H
+#define COIN_SYSTEM_RENDERER_H
+
 /**************************************************************************\
  * Copyright (c) Kongsberg Oil & Gas Technologies AS
  * All rights reserved.
@@ -30,19 +33,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 \**************************************************************************/
 
-#include "CoinOffscreenGLCanvas.cpp"
-#include "SoGL.cpp"
-#include "SoGLBigImage.cpp"
-#include "SoGLCubeMapImage.cpp"
-#include "SoGLDriverDatabase.cpp"
-#include "SoGLImage.cpp"
-#include "SoGLNurbs.cpp"
-#include "SoOffscreenCGData.cpp"
-#include "SoOffscreenGLXData.cpp"
-#include "SoOffscreenRenderer.cpp"
-#include "SoOffscreenWGLData.cpp"
-#include "SoRenderer.cpp"
-#include "SoRenderManager.cpp"
-#include "SoRenderManagerP.cpp"
-#include "SoVBO.cpp"
-#include "SoVertexArrayIndexer.cpp"
+class SoRenderer {
+public:
+  enum Enum {
+    GL,
+    GLES,
+  };
+
+  static SoRenderer::Enum get();
+  static void set(SoRenderer::Enum renderer);
+  static bool isOpenGL();
+};
+
+#endif /* ! COIN_SYSTEM_RENDERER_H */

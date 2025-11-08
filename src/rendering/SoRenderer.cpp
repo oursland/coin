@@ -30,19 +30,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 \**************************************************************************/
 
-#include "CoinOffscreenGLCanvas.cpp"
-#include "SoGL.cpp"
-#include "SoGLBigImage.cpp"
-#include "SoGLCubeMapImage.cpp"
-#include "SoGLDriverDatabase.cpp"
-#include "SoGLImage.cpp"
-#include "SoGLNurbs.cpp"
-#include "SoOffscreenCGData.cpp"
-#include "SoOffscreenGLXData.cpp"
-#include "SoOffscreenRenderer.cpp"
-#include "SoOffscreenWGLData.cpp"
-#include "SoRenderer.cpp"
-#include "SoRenderManager.cpp"
-#include "SoRenderManagerP.cpp"
-#include "SoVBO.cpp"
-#include "SoVertexArrayIndexer.cpp"
+#include <Inventor/system/renderer.h>
+
+static SoRenderer::Enum renderer = SoRenderer::GL;
+
+SoRenderer::Enum SoRenderer::get()
+{
+    return renderer;
+}
+
+void SoRenderer::set(SoRenderer::Enum r)
+{
+    renderer = r;
+}
+
+bool SoRenderer::isOpenGL()
+{
+    return renderer == SoRenderer::GL || renderer == SoRenderer::GLES;
+}
