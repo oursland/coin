@@ -13,6 +13,7 @@
 #include <Inventor/SoSceneManager.h>
 #include <Inventor/SoOffscreenRenderer.h>
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoSearchAction.h>
 #include <Inventor/nodes/SoBaseColor.h>
 #include <Inventor/nodes/SoCone.h>
 #include <Inventor/nodes/SoCube.h>
@@ -55,6 +56,54 @@ static bool useGLCompatibilityProfile = false;
 GLFWwindow* window;
 SoSceneManager* sceneManager;
 SoCamera* camera;
+static bool cameraFromScene = false;
+
+static void setupSceneManager(SoSeparator* root);
+static SoSeparator* loadSceneFromFile(const char* path);
+static void redrawCallback(void * user, SoSceneManager * manager);
+
+static void setupSceneManager(SoSeparator* root)
+{
+    sceneManager = new SoSceneManager;
+    sceneManager->setRenderCallback(redrawCallback, (void *)1);
+    sceneManager->setBackgroundColor(SbColor(1.0f, 1.0f, 1.0f));
+    sceneManager->activate();
+    sceneManager->setSceneGraph(root);
+    if (!cameraFromScene && camera) {
+        camera->viewAll(root, sceneManager->getViewportRegion());
+    }
+}
+
+static SoSeparator* loadSceneFromFile(const char* path)
+{
+    SoInput input;
+    if (!input.openFile(path)) {
+        fprintf(stderr, "Unable to open scene file: %s\n", path);
+        return nullptr;
+    }
+    SoSeparator* loaded = SoDB::readAll(&input);
+    if (!loaded) {
+        fprintf(stderr, "Failed to parse scene file: %s\n", path);
+        return nullptr;
+    }
+    SoSearchAction search;
+    search.setType(SoCamera::getClassTypeId());
+    search.setSearchingAll(TRUE);
+    search.setInterest(SoSearchAction::ALL);
+    search.apply(loaded);
+    const SoPathList& paths = search.getPaths();
+    if (paths.getLength() > 0) {
+        SoPath* camPath = paths[0];
+        camera = static_cast<SoCamera*>(camPath->getTail());
+        cameraFromScene = true;
+    } else {
+        camera = new SoPerspectiveCamera;
+        loaded->insertChild(camera, 0);
+        cameraFromScene = false;
+    }
+    setupSceneManager(loaded);
+    return loaded;
+}
 
 // ----------------------------------------------------------------------
 
@@ -183,7 +232,7 @@ static void mandel(double sr, double si, double width, double height,
 std::function<void()> loop;
 void main_loop() { loop(); }
 
-int main(void)
+int main(int argc, char** argv)
 {
     glfwSetErrorCallback([](int error, const char* description) {
       fprintf(stderr, "Error: %s\n", description);
@@ -216,7 +265,14 @@ int main(void)
     img = new unsigned char[IMGWIDTH * IMGHEIGHT];
     mandel(-0.5, 0.6, 0.025, 0.025, IMGWIDTH, IMGHEIGHT, 1, img, 256);
 
-    SoSeparator* root = createScene();
+    const char* iv_path = argc > 1 ? argv[1] : nullptr;
+    SoSeparator* root = nullptr;
+    if (iv_path) {
+        root = loadSceneFromFile(iv_path);
+    }
+    if (!root) {
+        root = createScene();
+    }
 
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
@@ -309,13 +365,8 @@ SoSeparator* createScene()
     //root->addChild(new SoCone);
     root->addChild(new SoCube);
 
-    sceneManager = new SoSceneManager;
-    sceneManager->setRenderCallback(redrawCallback, (void *)1);
-    sceneManager->setBackgroundColor(SbColor(1.0f, 1.0f, 1.0f));
-    sceneManager->activate();
-    sceneManager->setSceneGraph(root);
-
-    camera->viewAll(root, sceneManager->getViewportRegion());
+    cameraFromScene = false;
+    setupSceneManager(root);
 
     return root;
 }
