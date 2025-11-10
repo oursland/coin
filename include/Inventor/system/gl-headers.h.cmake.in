@@ -42,7 +42,19 @@
 /* This define is at least needed before inclusion of the header files
    that are part of NVidia's Linux drivers v41.91. Without it, none of
    the extension and OpenGL 1.1+ function prototypes will be set up. */
+#ifndef GL_GLEXT_PROTOTYPES
 #define GL_GLEXT_PROTOTYPES 1
+#endif
+
+#if !defined(COIN_GL_COMPATIBILITY) || (COIN_GL_COMPATIBILITY+0)==0
+# if defined(__gl_h_) || defined(__GL_H__) || (defined(GL_VERSION_1_1) && !defined(GLCOREARB_H))
+#  error "Legacy <GL/gl.h> detected before core headers. Use core headers only."
+# endif
+# if (defined(GL_VERSION) || defined(GLCOREARB_H)) && \
+     (defined(GL_ES_VERSION_2_0) || defined(GL_ES_VERSION_3_0) || defined(GL_ES_VERSION_3_1) || defined(GL_ES_VERSION_3_2))
+#  error "Mixed desktop GL and GLES headers. Use exactly one API family."
+# endif
+#endif
 
 @SIM_INCLUDE_WINDOWS_H@
 @SIM_INCLUDE_GL_H@
