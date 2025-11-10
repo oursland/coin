@@ -7,6 +7,9 @@ set(COIN_RENDERING_FILES
 	SoGLCubeMapImage.cpp
 	SoGLNurbs.cpp
 	SoRenderer.cpp
+	SoRenderBackend.cpp
+	SoModernIR.cpp
+	SoModernGLBackend.cpp
 	SoRenderManager.cpp
 	SoRenderManagerP.cpp
 	SoOffscreenRenderer.cpp
@@ -26,6 +29,9 @@ set(COIN_RENDERING_INTERNAL_FILES
 	SoGL.cpp
 	SoGLNurbs.h
 	SoGLNurbs.cpp
+	SoModernIR.h
+	SoRenderBackend.h
+	SoModernGLBackend.h
 	SoRenderManagerP.h
 	SoRenderManagerP.cpp
 	SoOffscreenCGData.h

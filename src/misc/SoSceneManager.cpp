@@ -605,6 +605,18 @@ SoSceneManager::setHandleEventAction(SoHandleEventAction * hea)
   PRIVATE(this)->eventmanager->setHandleEventAction(hea);
 }
 
+void
+SoSceneManager::setModernRenderEnabled(SbBool enable)
+{
+  PRIVATE(this)->rendermanager->setModernRenderEnabled(enable);
+}
+
+SbBool
+SoSceneManager::isModernRenderEnabled(void) const
+{
+  return PRIVATE(this)->rendermanager->isModernRenderEnabled();
+}
+
 /*!
   Returns pointer to event handler action.
  */

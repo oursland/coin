@@ -178,6 +178,8 @@ public:
   void getAntialiasing(SbBool & smoothing, int & numPasses) const;
   void setGLRenderAction(SoGLRenderAction * const action);
   SoGLRenderAction * getGLRenderAction(void) const;
+  void setModernRenderEnabled(SbBool enable);
+  SbBool isModernRenderEnabled(void) const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 
@@ -210,6 +212,8 @@ protected:
                     SbBool initmatrices,
                     SbBool clearwindow,
                     SbBool clearzbuffer);
+  void renderModern(const SbBool clearwindow,
+                    const SbBool clearzbuffer);
 
   void renderStereo(SoGLRenderAction * action,
                     SbBool initmatrices,

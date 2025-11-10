@@ -81,6 +81,7 @@
 #include <Inventor/SbVec3f.h>
 #include <Inventor/SoInput.h>
 #include <Inventor/actions/SoAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
 #include <Inventor/details/SoDetail.h>
 #include <Inventor/elements/SoElement.h>
 #include <Inventor/engines/SoEngine.h>
@@ -328,6 +329,7 @@ SoDB::init(void)
   // Actions must be initialized before nodes (because of SO_ENABLE)
   SoAction::initClass();
   SoNode::initClass();
+  SoModernRenderAction::initClass();
   SoEngine::initClass();
   SoEvent::initClass();
   SoSensor::initClass();

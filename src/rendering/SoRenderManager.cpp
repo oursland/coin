@@ -59,6 +59,7 @@
 #include <Inventor/elements/SoTextureOverrideElement.h>
 #include <Inventor/elements/SoComplexityTypeElement.h>
 #include <Inventor/elements/SoLazyElement.h>
+#include <Inventor/elements/SoGLCacheContextElement.h>
 
 #include <algorithm>
 //FIXME:Need this include early, since including it via SoRenderManagerP.h will cause problems for cygwin. Don't understand the root cause BFG 20090629
@@ -80,6 +81,9 @@
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/actions/SoAudioRenderAction.h>
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
+#include <Inventor/SbTime.h>
+#include <Inventor/SbViewVolume.h>
 #include <Inventor/sensors/SoOneShotSensor.h>
 #include <Inventor/fields/SoSFTime.h>
 #include <Inventor/misc/SoAudioDevice.h>
@@ -89,6 +93,9 @@
 #include "tidbitsp.h"
 #include "misc/AudioTools.h"
 #include "rendering/SoGL.h"
+#include "rendering/SoRenderBackend.h"
+#include "rendering/SoModernGLBackend.h"
+#include "rendering/SoModernIR.h"
 #include "coindefs.h"
 
 #if COIN_WORKAROUND(COIN_MSVC, <= COIN_MSVC_6_0_VERSION)
@@ -263,6 +270,9 @@ SoRenderManager::SoRenderManager(void)
 
   PRIVATE(this)->stereostencilmask = NULL;
   PRIVATE(this)->superimpositions = NULL;
+  PRIVATE(this)->modernAction = NULL;
+  PRIVATE(this)->modernBackend = NULL;
+  PRIVATE(this)->modernEnabled = FALSE;
 
   PRIVATE(this)->doublebuffer = TRUE;
   PRIVATE(this)->deleteaudiorenderaction = TRUE;
@@ -277,6 +287,11 @@ SoRenderManager::SoRenderManager(void)
   PRIVATE(this)->backgroundindex = 0;
   PRIVATE(this)->overlaycolor = SbColor(1.0f, 0.0f, 0.0f).getPackedValue();
   PRIVATE(this)->stereostencilmaskvp = SbViewportRegion(0, 0);
+  PRIVATE(this)->modernFrameCounter = 0;
+  const char * modernenv = coin_getenv("COIN_USE_MODERN_RENDER");
+  if (modernenv && modernenv[0] != '0' && modernenv[0] != '\0') {
+    PRIVATE(this)->modernEnabled = TRUE;
+  }
 
   PRIVATE(this)->stereostenciltype = SoRenderManager::MONO;
   PRIVATE(this)->rendermode = SoRenderManager::AS_IS;
@@ -301,6 +316,12 @@ SoRenderManager::SoRenderManager(void)
  */
 SoRenderManager::~SoRenderManager()
 {
+  if (PRIVATE(this)->modernBackend) {
+    PRIVATE(this)->modernBackend->shutdown();
+    delete PRIVATE(this)->modernBackend;
+  }
+  delete PRIVATE(this)->modernAction;
+
   PRIVATE(this)->dummynode->unref();
 
   if (PRIVATE(this)->deleteglaction) delete PRIVATE(this)->glaction;
@@ -438,6 +459,74 @@ SoRenderManager::detachRootSensor(void)
   if (PRIVATE(this)->rootsensor) {
     PRIVATE(this)->rootsensor->detach();
   }
+}
+
+void
+SoRenderManager::renderModern(const SbBool clearwindow,
+                              const SbBool clearzbuffer)
+{
+  if (!PRIVATE(this)->scene) return;
+
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action) {
+    action = new SoModernRenderAction(PRIVATE(this)->glaction->getViewportRegion());
+    PRIVATE(this)->modernAction = action;
+  }
+
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  if (!backend) {
+    backend = new SoModernGLBackend();
+    PRIVATE(this)->modernBackend = backend;
+    SoRenderBackendInitParams initparams = {};
+    SbVec2s size = PRIVATE(this)->glaction->getViewportRegion().getViewportSizePixels();
+    initparams.targetInfo.size = size;
+    initparams.targetInfo.samples = 1;
+    initparams.targetInfo.colorFormat = 0;
+    initparams.targetInfo.depthFormat = 0;
+    initparams.targetInfo.targetId = 0;
+    initparams.sharedContext = NULL;
+    backend->initialize(initparams);
+  }
+
+  this->clearBuffers(clearwindow, clearzbuffer);
+
+  SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
+  action->setViewportRegion(vp);
+  action->setCamera(PRIVATE(this)->camera);
+  action->apply(PRIVATE(this)->scene);
+
+  SoRenderTargetInfo targetinfo = {};
+  targetinfo.size = vp.getViewportSizePixels();
+  targetinfo.samples = 1;
+  targetinfo.colorFormat = 0;
+  targetinfo.depthFormat = 0;
+  targetinfo.targetId = 0;
+  backend->resizeTarget(targetinfo);
+
+  const SoDrawList & list = action->getDrawList();
+  SoRenderParams params = {};
+  params.frameIndex = PRIVATE(this)->modernFrameCounter++;
+  params.time = SbTime::getTimeOfDay().getValue();
+  params.viewport = vp;
+  params.viewMatrix.makeIdentity();
+  params.projMatrix.makeIdentity();
+  params.viewProjMatrix.makeIdentity();
+  if (PRIVATE(this)->camera) {
+    float aspect = vp.getViewportAspectRatio();
+    SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
+    SbMatrix view, proj;
+    vv.getMatrices(view, proj);
+    params.viewMatrix = view;
+    params.projMatrix = proj;
+    params.viewProjMatrix = view * proj;
+  }
+  params.clearColor = PRIVATE(this)->backgroundcolor;
+  params.clearDepth = 1.0f;
+  params.flags = (clearwindow ? 1 : 0);
+  params.state = action->getState();
+  params.contextId = SoGLCacheContextElement::get(action->getState());
+
+  backend->render(list, params);
 }
 
 /*
@@ -624,6 +713,11 @@ SoRenderManager::render(const SbBool clearwindow, const SbBool clearzbuffer)
       SoAudioDevice::instance()->haveSound() &&
       SoAudioDevice::instance()->isEnabled())
     PRIVATE(this)->audiorenderaction->apply(PRIVATE(this)->scene);
+
+  if (PRIVATE(this)->modernEnabled) {
+    this->renderModern(clearwindow, clearzbuffer);
+    return;
+  }
 
   SoGLRenderAction * action = PRIVATE(this)->glaction;
   const int numpasses = action->getNumPasses();
@@ -1644,6 +1738,20 @@ SoRenderManager::setGLRenderAction(SoGLRenderAction * const action)
   PRIVATE(this)->deleteglaction = FALSE;
   if (PRIVATE(this)->glaction && haveregion)
     PRIVATE(this)->glaction->setViewportRegion(region);
+}
+
+void
+SoRenderManager::setModernRenderEnabled(SbBool enable)
+{
+  if (enable == PRIVATE(this)->modernEnabled) return;
+  PRIVATE(this)->modernEnabled = enable;
+  this->scheduleRedraw();
+}
+
+SbBool
+SoRenderManager::isModernRenderEnabled(void) const
+{
+  return PRIVATE(this)->modernEnabled;
 }
 
 /*!

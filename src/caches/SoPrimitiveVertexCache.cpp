@@ -108,7 +108,8 @@ public:
       normalvbo(NULL),
       texcoord0vbo(NULL),
       rgbavbo(NULL),
-      tangentvbo(NULL)
+      tangentvbo(NULL),
+      indexvbo(NULL)
   { }
   ~SoPrimitiveVertexCacheP()
   {
@@ -120,6 +121,7 @@ public:
     delete texcoord0vbo;
     delete rgbavbo;
     delete tangentvbo;
+    delete indexvbo;
 
     for (int i = 0; i < multitexvbo.getLength(); i++) {
       delete multitexvbo[i];
@@ -191,6 +193,7 @@ public:
   SoVBO * texcoord0vbo;
   SoVBO * rgbavbo;
   SoVBO * tangentvbo;
+  SoVBO * indexvbo;
   SbList <SoVBO*> multitexvbo;
 
   SoGLLazyElement::GLState prestate;
@@ -220,6 +223,12 @@ public:
                   const SbBool color, const SbBool normal,
                   const SbBool texture, const SbBool * enabled,
                   const int lastenabled);
+
+  SbBool ensureModernVBOs(const SoState * state,
+                          const uint32_t contextid,
+                          const SbBool color, const SbBool normal,
+                          const SbBool texture, const SbBool * enabled,
+                          const int lastenabled);
 
   void disableVBOs(const SoState * state,
                    const SbBool color, const SbBool normal,
@@ -520,7 +529,6 @@ SoPrimitiveVertexCache::renderPoints(SoState * state, const int arrays) const
                                                SoLazyElement::DIFFUSE_MASK);
   }
 }
-
 
 void
 SoPrimitiveVertexCache::addTriangle(const SoPrimitiveVertex * v0,
@@ -1214,6 +1222,123 @@ SoPrimitiveVertexCacheP::disableVBOs(const SoState * state,
       }
     }
   }
+}
+
+SbBool
+SoPrimitiveVertexCacheP::ensureModernVBOs(const SoState * state,
+                                          const uint32_t contextid,
+                                          const SbBool color, const SbBool normal,
+                                          const SbBool texture, const SbBool * enabled,
+                                          const int lastenabled)
+{
+  (void) state;
+  if (this->triangleindexer == NULL) {
+    return FALSE;
+  }
+
+  if (color) {
+    if (this->rgbavbo == NULL) {
+      this->rgbavbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::Color0, 4, SoAttribType::Uint8).end();
+      this->rgbavbo->setVertexLayout(layout);
+      this->rgbavbo->setBufferData(this->rgbalist.getArrayPtr(),
+                                   this->rgbalist.getLength() * sizeof(uint8_t));
+    }
+    this->rgbavbo->bindBuffer(contextid);
+  }
+  if (texture) {
+    if (this->texcoord0vbo == NULL) {
+      this->texcoord0vbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::TexCoord0, 4, SoAttribType::Float).end();
+      this->texcoord0vbo->setVertexLayout(layout);
+      this->texcoord0vbo->setBufferData(this->texcoordlist.getArrayPtr(),
+                                        this->texcoordlist.getLength()*4*sizeof(float));
+    }
+    this->texcoord0vbo->bindBuffer(contextid);
+    if (this->multitexcoords) {
+      for (int i = 1; i <= lastenabled; i++) {
+        if (!enabled || !enabled[i]) continue;
+        while (this->multitexvbo.getLength() <= i) {
+          this->multitexvbo.append(NULL);
+        }
+        if (this->multitexvbo[i] == NULL) {
+          SoVBO* vbo = new SoVBO;
+          SoVertexLayout layout;
+          auto attrib = (SoAttrib::Enum)((int)SoAttrib::TexCoord0 + i);
+          layout.begin().add(attrib, 4, SoAttribType::Float).end();
+          vbo->setVertexLayout(layout);
+          vbo->setBufferData(this->multitexcoords[i].getArrayPtr(),
+                             this->multitexcoords[i].getLength()*4*sizeof(float));
+          this->multitexvbo[i] = vbo;
+        }
+        this->multitexvbo[i]->bindBuffer(contextid);
+      }
+    }
+  }
+  if (normal) {
+    if (this->normalvbo == NULL) {
+      this->normalvbo = new SoVBO;
+      SoVertexLayout layout;
+      layout.begin().add(SoAttrib::Normal, 3, SoAttribType::Float).end();
+      this->normalvbo->setVertexLayout(layout);
+      this->normalvbo->setBufferData(this->normallist.getArrayPtr(),
+                                     this->normallist.getLength()*3*sizeof(float));
+    }
+    this->normalvbo->bindBuffer(contextid);
+  }
+
+  if (this->vertexvbo == NULL) {
+    this->vertexvbo = new SoVBO;
+    SoVertexLayout layout;
+    layout.begin().add(SoAttrib::Position, 3, SoAttribType::Float).end();
+    this->vertexvbo->setVertexLayout(layout);
+    this->vertexvbo->setBufferData(this->vertexlist.getArrayPtr(),
+                                   this->vertexlist.getLength()*3*sizeof(float));
+  }
+  this->vertexvbo->bindBuffer(contextid);
+
+  const GLint * indices = this->triangleindexer->getIndices();
+  const int numindices = this->triangleindexer->getNumIndices();
+  if (!indices || numindices <= 0) {
+    return FALSE;
+  }
+  if (this->indexvbo == NULL) {
+    this->indexvbo = new SoVBO(GL_ELEMENT_ARRAY_BUFFER);
+  }
+  this->indexvbo->setBufferData(indices, numindices * sizeof(GLint));
+  this->indexvbo->bindBuffer(contextid);
+
+  return TRUE;
+}
+
+SbBool
+SoPrimitiveVertexCache::ensureModernVBOs(const SoState * state,
+                                         const uint32_t contextid,
+                                         const SbBool color, const SbBool normal,
+                                         const SbBool texture, const SbBool * enabled,
+                                         const int lastenabled) const
+{
+  return PRIVATE(const_cast<SoPrimitiveVertexCache *>(this))->ensureModernVBOs(state, contextid, color, normal, texture, enabled, lastenabled);
+}
+
+SoVBO *
+SoPrimitiveVertexCache::getVertexVBO() const
+{
+  return PRIVATE(this)->vertexvbo;
+}
+
+SoVBO *
+SoPrimitiveVertexCache::getIndexVBO() const
+{
+  return PRIVATE(this)->indexvbo;
+}
+
+SoVAO *
+SoPrimitiveVertexCache::getVAO() const
+{
+  return PRIVATE(this)->vao;
 }
 
 void

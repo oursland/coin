@@ -39,6 +39,7 @@
 
 class SoState;
 class SoGLRenderAction;
+class SoModernRenderAction;
 
 
 typedef void SoShaderProgramEnableCB(void * closure, 
@@ -61,6 +62,7 @@ public:
 
 SoEXTENDER public:
   virtual void GLRender(SoGLRenderAction * action);
+  virtual void render(SoModernRenderAction * action);
   virtual void search(SoSearchAction * action);
   void render(SoState * state);
 

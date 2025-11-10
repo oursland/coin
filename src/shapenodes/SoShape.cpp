@@ -47,6 +47,7 @@
 
 #include <cstring>
 #include <cstdlib>
+#include <vector>
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -62,6 +63,7 @@
 #include <Inventor/SoPrimitiveVertex.h>
 #include <Inventor/actions/SoCallbackAction.h>
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
 #include <Inventor/actions/SoGetBoundingBoxAction.h>
 #include <Inventor/actions/SoGetPrimitiveCountAction.h>
 #include <Inventor/actions/SoRayPickAction.h>
@@ -78,6 +80,7 @@
 #include <Inventor/elements/SoCullElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoGLLazyElement.h>
+#include <Inventor/elements/SoLazyElement.h>
 #include <Inventor/elements/SoGLMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoGLMultiTextureImageElement.h>
 #include <Inventor/elements/SoGLShapeHintsElement.h>
@@ -86,7 +89,11 @@
 #include <Inventor/elements/SoLightElement.h>
 #include <Inventor/elements/SoLightModelElement.h>
 #include <Inventor/elements/SoMaterialBindingElement.h>
+#include <Inventor/elements/SoDrawStyleElement.h>
+#include <Inventor/elements/SoLineWidthElement.h>
+#include <Inventor/elements/SoPolygonOffsetElement.h>
 #include <Inventor/elements/SoModelMatrixElement.h>
+#include <Inventor/elements/SoDepthBufferElement.h>
 #include <Inventor/elements/SoMultiTextureCoordinateElement.h>
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoNormalElement.h>
@@ -132,6 +139,7 @@
 #include "threads/threadsutilp.h"
 #include "tidbitsp.h"
 #include "rendering/SoVBO.h"
+#include "rendering/SoModernIR.h"
 #include "coindefs.h" // COIN_OBSOLETED()
 
 // SoShape.cpp grew too big, so I had to move some code into new
@@ -140,6 +148,157 @@
 #include "soshape_trianglesort.h"
 #include "soshape_bigtexture.h"
 #include "soshape_bumprender.h"
+
+// *************************************************************************
+
+namespace {
+
+struct IRVertex {
+  SbVec3f position;
+  SbVec3f normal;
+  SbVec4f texcoord;
+};
+
+class SoModernPrimitiveAssembler : public SoModernRenderAction::PrimitiveCollector {
+public:
+  SoModernPrimitiveAssembler(SoModernRenderAction * action,
+                             SoShape * shape)
+  : action(action),
+    shape(shape),
+    topology(SO_TOPOLOGY_COUNT),
+    warnedMixed(FALSE) {}
+
+  void onTriangle(const SoPrimitiveVertex * v1,
+                  const SoPrimitiveVertex * v2,
+                  const SoPrimitiveVertex * v3) override
+  {
+    if (!this->ensureTopology(SO_TOPOLOGY_TRIANGLES)) return;
+    this->appendVertex(v1);
+    this->appendVertex(v2);
+    this->appendVertex(v3);
+  }
+
+  void onLine(const SoPrimitiveVertex * v1,
+              const SoPrimitiveVertex * v2) override
+  {
+    if (!this->ensureTopology(SO_TOPOLOGY_LINES)) return;
+    this->appendVertex(v1);
+    this->appendVertex(v2);
+  }
+
+  void onPoint(const SoPrimitiveVertex * v) override
+  {
+    if (!this->ensureTopology(SO_TOPOLOGY_POINTS)) return;
+    this->appendVertex(v);
+  }
+
+  void finalize()
+  {
+    if (this->vertices.empty()) return;
+
+    SoRenderCommand cmd;
+    std::memset(&cmd, 0, sizeof(SoRenderCommand));
+
+    SoPrimitiveTopology topo = this->topology;
+    if (topo == SO_TOPOLOGY_COUNT) topo = SO_TOPOLOGY_TRIANGLES;
+    cmd.geometry.topology = topo;
+    cmd.geometry.vertexCount = static_cast<uint32_t>(this->vertices.size());
+    cmd.geometry.indexCount = 0;
+
+    const size_t numverts = this->vertices.size();
+    float * positions = static_cast<float *>(
+      this->action->allocateGeometryStorage(sizeof(float) * 3 * numverts));
+    float * normals = static_cast<float *>(
+      this->action->allocateGeometryStorage(sizeof(float) * 3 * numverts));
+    float * texcoords = static_cast<float *>(
+      this->action->allocateGeometryStorage(sizeof(float) * 4 * numverts));
+
+    for (size_t i = 0; i < numverts; ++i) {
+      const IRVertex & v = this->vertices[i];
+      const SbVec3f & pos = v.position;
+      const SbVec3f & nor = v.normal;
+      const SbVec4f & tex = v.texcoord;
+
+      float * pdst = positions + (i * 3);
+      pdst[0] = pos[0];
+      pdst[1] = pos[1];
+      pdst[2] = pos[2];
+
+      float * ndst = normals + (i * 3);
+      ndst[0] = nor[0];
+      ndst[1] = nor[1];
+      ndst[2] = nor[2];
+
+      float * tdst = texcoords + (i * 4);
+      tdst[0] = tex[0];
+      tdst[1] = tex[1];
+      tdst[2] = tex[2];
+      tdst[3] = tex[3];
+    }
+
+    cmd.geometry.positions = positions;
+    cmd.geometry.normals = normals;
+    cmd.geometry.texcoords = texcoords;
+    cmd.geometry.colors = NULL;
+    cmd.geometry.indices = NULL;
+    cmd.geometry.vertexStride = sizeof(float) * 3;
+    cmd.geometry.texcoordStride = sizeof(float) * 4;
+
+    SoState * state = this->action->getState();
+    cmd.modelMatrix = SoModelMatrixElement::get(state);
+
+    SoModernIR::fillMaterialFromState(state, cmd.material);
+    SoModernIR::fillRenderStateFromState(state, cmd.state);
+
+    cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
+      SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
+    cmd.lightingHandle = 0;
+    cmd.pipelineKey = 0;
+    cmd.sortKey = SoIRComputeSortKey(cmd,
+                                     static_cast<uint32_t>(cmd.pass),
+                                     0);
+    cmd.userData = this->shape;
+
+    this->action->getMutableDrawList().addCommand(cmd);
+  }
+
+private:
+  void appendVertex(const SoPrimitiveVertex * v)
+  {
+    IRVertex vertex;
+    vertex.position = v->getPoint();
+    vertex.normal = v->getNormal();
+    vertex.texcoord = v->getTextureCoords();
+    this->vertices.push_back(vertex);
+  }
+
+  SbBool ensureTopology(SoPrimitiveTopology topo)
+  {
+    if (this->topology == SO_TOPOLOGY_COUNT) {
+      this->topology = topo;
+      return TRUE;
+    }
+    if (this->topology != topo) {
+      if (!this->warnedMixed) {
+        SoDebugError::postInfo("SoShape::render",
+                               "Shape %s emitted mixed primitive types; "
+                               "extra primitives ignored",
+                               this->shape->getTypeId().getName().getString());
+        this->warnedMixed = TRUE;
+      }
+      return FALSE;
+    }
+    return TRUE;
+  }
+
+  SoModernRenderAction * action;
+  SoShape * shape;
+  SoPrimitiveTopology topology;
+  SbBool warnedMixed;
+  std::vector<IRVertex> vertices;
+};
+
+} // anonymous namespace
 
 // *************************************************************************
 
@@ -480,6 +639,28 @@ SoShape::GLRender(SoGLRenderAction * action)
 
     if (vp) action->getState()->pop();
   }
+}
+
+void
+SoShape::render(SoModernRenderAction * action)
+{
+  if (!action) return;
+  SoState * state = action->getState();
+  const SoShapeStyleElement * style = SoShapeStyleElement::get(state);
+  if (style && style->mightNotRender()) return;
+
+  if (this->ensurePVCache(action)) {
+    SoPrimitiveVertexCache * cache = PRIVATE(this)->pvcache;
+    if (cache && SoModernIR::appendCacheDrawCommands(cache, action, this)) {
+      return;
+    }
+  }
+
+  SoModernPrimitiveAssembler assembler(action, this);
+  action->pushPrimitiveCollector(&assembler);
+  this->generatePrimitives(action);
+  action->popPrimitiveCollector(&assembler);
+  assembler.finalize();
 }
 
 // Doc in parent.
@@ -1147,6 +1328,23 @@ SoShape::invokeTriangleCallbacks(SoAction * const action,
     SoGetPrimitiveCountAction * ga = (SoGetPrimitiveCountAction *) action;
     ga->incNumTriangles();
   }
+  else if (action->getTypeId().isDerivedFrom(SoModernRenderAction::getClassTypeId())) {
+    SoModernRenderAction * modern = static_cast<SoModernRenderAction *>(action);
+    soshape_staticdata * shapedata = soshape_get_staticdata();
+    if (shapedata->rendermode == PVCACHE && PRIVATE(this)->pvcache) {
+      int pdidx[3];
+      pdidx[0] = shapedata->primdata->getPointDetailIndex(v1);
+      pdidx[1] = shapedata->primdata->getPointDetailIndex(v2);
+      pdidx[2] = shapedata->primdata->getPointDetailIndex(v3);
+      PRIVATE(this)->pvcache->addTriangle(v1, v2, v3, pdidx);
+    } else {
+      SoModernRenderAction::PrimitiveCollector * collector =
+        modern->getActivePrimitiveCollector();
+      if (collector) {
+        collector->onTriangle(v1, v2, v3);
+      }
+    }
+  }
   else if (action->getTypeId().isDerivedFrom(SoGLRenderAction::getClassTypeId())) {
     soshape_staticdata * shapedata = soshape_get_staticdata();
 
@@ -1248,6 +1446,18 @@ SoShape::invokeLineSegmentCallbacks(SoAction * const action,
     SoGetPrimitiveCountAction * ga = (SoGetPrimitiveCountAction *) action;
     ga->incNumLines();
   }
+  else if (action->getTypeId().isDerivedFrom(SoModernRenderAction::getClassTypeId())) {
+    SoModernRenderAction * modern = static_cast<SoModernRenderAction *>(action);
+    soshape_staticdata * shapedata = soshape_get_staticdata();
+    if (shapedata->rendermode == PVCACHE && PRIVATE(this)->pvcache) {
+      PRIVATE(this)->pvcache->addLine(v1, v2);
+    }
+    SoModernRenderAction::PrimitiveCollector * collector =
+      modern->getActivePrimitiveCollector();
+    if (collector) {
+      collector->onLine(v1, v2);
+    }
+  }
   else if (action->getTypeId().isDerivedFrom(SoGLRenderAction::getClassTypeId())) {
     soshape_staticdata * shapedata = soshape_get_staticdata();
     switch (shapedata->rendermode) {
@@ -1307,6 +1517,18 @@ SoShape::invokePointCallbacks(SoAction * const action,
   else if (action->getTypeId().isDerivedFrom(SoGetPrimitiveCountAction::getClassTypeId())) {
     SoGetPrimitiveCountAction * ga = (SoGetPrimitiveCountAction *) action;
     ga->incNumPoints();
+  }
+  else if (action->getTypeId().isDerivedFrom(SoModernRenderAction::getClassTypeId())) {
+    SoModernRenderAction * modern = static_cast<SoModernRenderAction *>(action);
+    soshape_staticdata * shapedata = soshape_get_staticdata();
+    if (shapedata->rendermode == PVCACHE && PRIVATE(this)->pvcache) {
+      PRIVATE(this)->pvcache->addPoint(v);
+    }
+    SoModernRenderAction::PrimitiveCollector * collector =
+      modern->getActivePrimitiveCollector();
+    if (collector) {
+      collector->onPoint(v);
+    }
   }
   else if (action->getTypeId().isDerivedFrom(SoGLRenderAction::getClassTypeId())) {
     soshape_staticdata * shapedata = soshape_get_staticdata();
@@ -1871,44 +2093,51 @@ SoShape::finishVertexArray(SoGLRenderAction * action,
   SoGLVertexAttributeElement::getInstance(state)->disableVBO(action);
 }
 
+SbBool
+SoShape::ensurePVCache(SoAction * action)
+{
+  if (!action) return FALSE;
+  SoState * state = action->getState();
+  if (!state) return FALSE;
+
+  if (PRIVATE(this)->pvcache &&
+      PRIVATE(this)->pvcache->isValid(state)) {
+    return TRUE;
+  }
+
+  if (PRIVATE(this)->pvcache) {
+    PRIVATE(this)->pvcache->unref();
+    PRIVATE(this)->pvcache = NULL;
+  }
+
+  SoCacheElement::invalidate(state);
+
+  soshape_staticdata * shapedata = soshape_get_staticdata();
+  const int prevmode = shapedata->rendermode;
+
+  SbBool storedinvalid = SoCacheElement::setInvalid(FALSE);
+  state->push();
+  PRIVATE(this)->pvcache = new SoPrimitiveVertexCache(state);
+  PRIVATE(this)->pvcache->ref();
+  SoCacheElement::set(state, PRIVATE(this)->pvcache);
+  shapedata->rendermode = PVCACHE;
+  this->generatePrimitives(action);
+  shapedata->rendermode = prevmode;
+
+  if (PRIVATE(this)->bumprender) {
+    PRIVATE(this)->bumprender->calcTangentSpace(PRIVATE(this)->pvcache);
+  }
+  state->pop();
+  SoCacheElement::setInvalid(storedinvalid);
+  PRIVATE(this)->pvcache->close(state);
+  PRIVATE(this)->testSetupShapeHints(this);
+  return TRUE;
+}
+
 void
 SoShape::validatePVCache(SoGLRenderAction * action)
 {
-  SoState * state = action->getState();
-  if (PRIVATE(this)->pvcache == NULL ||
-      !PRIVATE(this)->pvcache->isValid(state)) {
-    if (PRIVATE(this)->pvcache) {
-      PRIVATE(this)->pvcache->unref();
-    }
-    // we don't want to create display list caches while building the VBOs
-    SoCacheElement::invalidate(state);
-
-    soshape_staticdata * shapedata = soshape_get_staticdata();
-    SbBool storedinvalid = SoCacheElement::setInvalid(FALSE);
-    // must push state to make cache dependencies work
-    state->push();
-    PRIVATE(this)->pvcache = new SoPrimitiveVertexCache(state);
-    PRIVATE(this)->pvcache->ref();
-    SoCacheElement::set(state, PRIVATE(this)->pvcache);
-    shapedata->rendermode = PVCACHE;
-    this->generatePrimitives(action);
-    if (SoRenderer::isOpenGL()) {
-      shapedata->rendermode = NORMAL;
-    }
-    // needed for out old bumpmap handling
-    if (PRIVATE(this)->bumprender) PRIVATE(this)->bumprender->calcTangentSpace(PRIVATE(this)->pvcache);
-    // this _must_ be called after creating the pvcache
-
-    // FIXME: consider if we should call a virtual function here to
-    // enable subclasses to modify the primitive vertex cache. Must be
-    // done before to state->pop() call.
-    state->pop();
-    SoCacheElement::setInvalid(storedinvalid);
-    PRIVATE(this)->pvcache->close(state);
-    PRIVATE(this)->testSetupShapeHints(this);
-  }
+  (void) this->ensurePVCache(action);
 }
-
-
 
 #undef PRIVATE

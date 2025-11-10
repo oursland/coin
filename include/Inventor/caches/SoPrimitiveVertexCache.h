@@ -40,11 +40,13 @@
 #include <Inventor/SbVec2f.h>
 #include <Inventor/tools/SbPimplPtr.h>
 
+class SoVBO;
+class SoVAO;
+
 class SoPrimitiveVertexCacheP;
 class SoPrimitiveVertex;
 class SoPointDetail;
 class SoState;
-
 class COIN_DLL_API SoPrimitiveVertexCache : public SoCache {
   typedef SoCache inherited;
 public:
@@ -96,6 +98,14 @@ public:
 
   void fit(void);
   void depthSortTriangles(SoState * state);
+  SbBool ensureModernVBOs(const SoState * state,
+                          const uint32_t contextid,
+                          const SbBool color, const SbBool normal,
+                          const SbBool texture, const SbBool * enabled,
+                          const int lastenabled) const;
+  SoVBO * getVertexVBO() const;
+  SoVBO * getIndexVBO() const;
+  SoVAO * getVAO() const;
 
 private:
   SbPimplPtr<SoPrimitiveVertexCacheP> pimpl;

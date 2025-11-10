@@ -59,6 +59,8 @@ class SoGetBoundingBoxAction;
 class SoGetMatrixAction;
 class SoSearchAction;
 class SbPList;
+class SoModernRenderAction;
+class SoRenderBackend;
 
 class SoRenderManagerP {
 public:
@@ -121,6 +123,11 @@ public:
   SoOneShotSensor * redrawshot;
 
   SbPList * superimpositions;
+
+  SoModernRenderAction * modernAction;
+  SoRenderBackend * modernBackend;
+  SbBool modernEnabled;
+  int modernFrameCounter;
 
   void invokePreRenderCallbacks(void);
   void invokePostRenderCallbacks(void);

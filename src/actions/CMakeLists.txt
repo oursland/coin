@@ -10,6 +10,7 @@ set(COIN_ACTIONS_FILES
 	SoGetPrimitiveCountAction.cpp
 	SoHandleEventAction.cpp
 	SoLineHighlightRenderAction.cpp
+	SoModernRenderAction.cpp
 	SoPickAction.cpp
 	SoRayPickAction.cpp
 	SoReorganizeAction.cpp

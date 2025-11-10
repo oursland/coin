@@ -48,6 +48,7 @@ class SoCoordinateElement;
 class SbVec2f;
 class SoMaterialBundle;
 class SoBoundingBoxCache;
+class SoModernRenderAction;
 
 class COIN_DLL_API SoShape : public SoNode {
   typedef SoNode inherited;
@@ -68,6 +69,7 @@ public:
 
   virtual void getBoundingBox(SoGetBoundingBoxAction * action);
   virtual void GLRender(SoGLRenderAction * action);
+  virtual void render(SoModernRenderAction * action);
   virtual void rayPick(SoRayPickAction * action);
   virtual void callback(SoCallbackAction * action);
   virtual void computeBBox(SoAction * action, SbBox3f & box,
@@ -155,6 +157,7 @@ protected:
 private:
   class SoShapeP * pimpl;
   void validatePVCache(SoGLRenderAction * action);
+  SbBool ensurePVCache(SoAction * action);
   void getBBox(SoAction * action, SbBox3f & box, SbVec3f & center);
   void rayPickBoundingBox(SoRayPickAction * action);
   friend class soshape_primdata;           // internal class

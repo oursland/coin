@@ -207,6 +207,7 @@
 #include <cassert>
 
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
 #include <Inventor/actions/SoSearchAction.h>
 #include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
@@ -287,6 +288,13 @@ SoShaderProgram::~SoShaderProgram()
 // doc from parent
 void
 SoShaderProgram::GLRender(SoGLRenderAction * action)
+{
+  if (!action) return;
+  PRIVATE(this)->render(action->getState());
+}
+
+void
+SoShaderProgram::render(SoModernRenderAction * action)
 {
   if (!action) return;
   PRIVATE(this)->render(action->getState());
