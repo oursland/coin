@@ -1,3 +1,4 @@
+
 /* Simple example that demonstrates how to render with Coin3D and GLFW.
  * 
  * Note: This example uses GLFW, so you do not need to have any of the 
@@ -18,6 +19,10 @@
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <Inventor/nodes/SoRotationXYZ.h>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include <cstdlib>
 #include <functional>
