@@ -804,13 +804,9 @@ SoRenderManager::renderScene( SoGLRenderAction * action,
   if (clearmask) {
     if (clearmask & GL_COLOR_BUFFER_BIT) {
       if (PRIVATE(this)->isrgbmode) {
-        if (SoRenderer::isOpenGL()) {
           const SbColor4f bgcol = PRIVATE(this)->backgroundcolor;
           glClearColor(bgcol[0], bgcol[1], bgcol[2], bgcol[3]);
-        }
       } else {
-
-        if (SoRenderer::isOpenGL()) {
 #if defined(COIN_GL_COMPATIBILITY)
           if (sogl_compatibility_profile(action->getState())) {
             glClearIndex((GLfloat) PRIVATE(this)->backgroundindex);
@@ -818,7 +814,6 @@ SoRenderManager::renderScene( SoGLRenderAction * action,
 #else
           assert(0 && "Not implemented for non-compatibility GL renderer");
 #endif
-        }
       }
     }
     // Registering a callback is needed since the correct GL viewport

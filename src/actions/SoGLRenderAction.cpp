@@ -1233,12 +1233,17 @@ SoGLRenderAction::handleTransparency(SbBool istransparent)
       SoProjectionMatrixElement::get(thestate);
 
     if (!SoMultiTextureEnabledElement::get(thestate, 0)) {
+      SbBool combinersetup = FALSE;
       if (glue->has_arb_fragment_program && !PRIVATE(this)->usenvidiaregistercombiners) {
         PRIVATE(this)->setupFragmentProgram();
+        combinersetup = TRUE;
       }
-      else {
+#if defined(COIN_GL_COMPATIBILITY)
+      if (!combinersetup) {
         PRIVATE(this)->setupRegisterCombinersNV();
+        combinersetup = TRUE;
       }
+#endif
     }
 
     // Must always return FALSE as everything must be rendered to the
@@ -2081,11 +2086,13 @@ SoGLRenderActionP::doSortedLayersBlendRendering(const SoState * state, SoNode * 
 
   }
 
+#if defined(COIN_GL_COMPATIBILITY)
   // Blend together the acquired RGBA layers
   if (glue->has_arb_fragment_program && !this->usenvidiaregistercombiners)
     renderSortedLayersFP(state);
   else
     renderSortedLayersNV(state);
+#endif
 
 }
 
@@ -2599,6 +2606,7 @@ SoGLRenderActionP::renderSortedLayersFP(const SoState * state)
 
 }
 
+ #if defined(COIN_GL_COMPATIBILITY)
 void
 SoGLRenderActionP::renderSortedLayersNV(const SoState * state)
 {
@@ -2696,6 +2704,7 @@ SoGLRenderActionP::renderSortedLayersNV(const SoState * state)
     glEnable(GL_CULL_FACE);
 
 }
+#endif // COIN_GL_COMPATIBILITY
 
 // *************************************************************************
 
