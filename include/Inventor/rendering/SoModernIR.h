@@ -295,6 +295,13 @@ public:
   //! Returns empty string if index is out of range.
   std::string resolvePickIdentity(uint32_t lutIndex) const;
 
+  //! Set highlight on the command owning a pick LUT entry.
+  //! lutIndex is 1-based. color is RGBA. Clears previous highlight first.
+  void setHighlight(uint32_t lutIndex, const SbVec4f & color);
+
+  //! Clear all highlights from all commands.
+  void clearHighlight();
+
 private:
   SbList<SoRenderCommand> commands;
   std::vector<SoPickLUTEntry> pickLUT;

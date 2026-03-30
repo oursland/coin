@@ -11,6 +11,7 @@
 #include <Inventor/rendering/SoModernIR.h>
 
 #include <cstddef>
+#include <unordered_map>
 
 class SoPath;
 class SoPathList;
@@ -58,6 +59,13 @@ public:
   // Access to generated IR for the current frame
   const SoDrawList & getDrawList(void) const { return this->drawlist; }
   SoDrawList & getMutableDrawList() { return this->drawlist; }
+
+  /// Store the scene graph path for a command index (called by shapes during render()).
+  /// The path is copied and ref'd; freed on next clear.
+  void storeCommandPath(int commandIndex, const SoPath * path);
+
+  /// Retrieve stored path for a command index. Returns NULL if not stored.
+  SoPath * getCommandPath(int commandIndex) const;
   void * allocateGeometryStorage(size_t bytes, size_t alignment = alignof(float));
 
   void pushPrimitiveCollector(PrimitiveCollector * collector);
@@ -84,6 +92,7 @@ private:
   SoCamera *       camera;
 
   SoDrawList       drawlist;
+  std::unordered_map<int, SoPath *> commandPaths;  //!< ref'd paths per command index
   SoModernRenderActionP * pimpl;
 };
 

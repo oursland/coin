@@ -96,6 +96,10 @@ private:
   std::vector<uint32_t> idColorVBOs;
   std::vector<int> idColorVertexCounts;
 
+  // Temporary VBOs for CPU data upload in ID pass
+  uint32_t tempPosVBO = 0;
+  uint32_t tempIdxVBO = 0;
+
   // ID pass shader
   uint32_t shaderProgram = 0;
   int uIdView = -1;

@@ -503,6 +503,13 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   targetinfo.targetId = 0;
   backend->resizeTarget(targetinfo);
 
+  // Build pick LUT after traversal, before rendering
+  action->getMutableDrawList().buildPickLUT();
+
+  // TODO: debug — any non-(-1) highlight at this point is from context reading
+  // in SoBrepFaceSet::render(), which means getRenderContext IS finding state.
+  // The Tracy logging in FreeCAD may not fire due to zone nesting limits.
+
   const SoDrawList & list = action->getDrawList();
   SoRenderParams params = {};
   params.frameIndex = PRIVATE(this)->modernFrameCounter++;
@@ -1774,6 +1781,27 @@ SoRenderManager::resolveGpuPickIdentity(uint32_t lutIndex) const
   SoModernRenderAction * action = PRIVATE(this)->modernAction;
   if (!action) return std::string();
   return action->getDrawList().resolvePickIdentity(lutIndex);
+}
+
+SoPath *
+SoRenderManager::getGpuPickPath(uint32_t lutIndex) const
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action || lutIndex == 0) return nullptr;
+  const auto & lut = action->getDrawList().getPickLUT();
+  if (lutIndex > lut.size()) return nullptr;
+  int cmdIdx = lut[lutIndex - 1].commandIndex;
+  return action->getCommandPath(cmdIdx);
+}
+
+int
+SoRenderManager::getGpuPickElement(uint32_t lutIndex) const
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action || lutIndex == 0) return -1;
+  const auto & lut = action->getDrawList().getPickLUT();
+  if (lutIndex > lut.size()) return -1;
+  return lut[lutIndex - 1].elementIndex;
 }
 
 /*!

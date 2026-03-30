@@ -137,6 +137,10 @@ SoModernRenderAction::SoModernRenderAction(const SbViewportRegion & vp)
 
 SoModernRenderAction::~SoModernRenderAction()
 {
+  for (auto & kv : this->commandPaths) {
+    if (kv.second) kv.second->unref();
+  }
+  this->commandPaths.clear();
   delete PRIVATE(this);
   PRIVATE(this) = NULL;
 }
@@ -157,14 +161,39 @@ void
 SoModernRenderAction::apply(SoNode * root)
 {
   this->drawlist.clear();
+  for (auto & kv : this->commandPaths) {
+    if (kv.second) kv.second->unref();
+  }
+  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(root);
+}
+
+void
+SoModernRenderAction::storeCommandPath(int commandIndex, const SoPath * path)
+{
+  if (!path) return;
+  SoPath * copy = path->copy();
+  copy->ref();
+  this->commandPaths[commandIndex] = copy;
+}
+
+SoPath *
+SoModernRenderAction::getCommandPath(int commandIndex) const
+{
+  auto it = this->commandPaths.find(commandIndex);
+  if (it != this->commandPaths.end()) return it->second;
+  return nullptr;
 }
 
 void
 SoModernRenderAction::apply(SoPath * path)
 {
   this->drawlist.clear();
+  for (auto & kv : this->commandPaths) {
+    if (kv.second) kv.second->unref();
+  }
+  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(path);
 }
@@ -173,6 +202,10 @@ void
 SoModernRenderAction::apply(const SoPathList & pathlist, SbBool obeysrules)
 {
   this->drawlist.clear();
+  for (auto & kv : this->commandPaths) {
+    if (kv.second) kv.second->unref();
+  }
+  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(pathlist, obeysrules);
 }

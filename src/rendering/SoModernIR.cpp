@@ -1,6 +1,7 @@
 // src/rendering/SoModernIR.cpp
 
 #include "rendering/SoModernIR.h"
+#include "CoinTracyConfig.h"
 
 #include <Inventor/actions/SoModernRenderAction.h>
 #include <Inventor/caches/SoPrimitiveVertexCache.h>
@@ -136,6 +137,7 @@ SoDrawList::end() const
 void
 SoDrawList::buildPickLUT()
 {
+  ZoneScopedN("buildPickLUT");
   pickLUT.clear();
   int numCmds = this->getNumCommands();
 
@@ -196,6 +198,7 @@ SoDrawList::buildPickLUT()
 std::string
 SoDrawList::resolvePickIdentity(uint32_t lutIndex) const
 {
+  ZoneScopedN("resolvePickIdentity");
   if (lutIndex == 0 || lutIndex > pickLUT.size()) {
     return {};
   }
@@ -227,6 +230,33 @@ SoDrawList::resolvePickIdentity(uint32_t lutIndex) const
   }
 
   return result;
+}
+
+void
+SoDrawList::setHighlight(uint32_t lutIndex, const SbVec4f & color)
+{
+  ZoneScopedN("setHighlight");
+  clearHighlight();
+
+  if (lutIndex == 0 || lutIndex > pickLUT.size()) return;
+  const SoPickLUTEntry & le = pickLUT[lutIndex - 1];
+  if (le.commandIndex < 0 || le.commandIndex >= this->getNumCommands()) return;
+
+  SoRenderCommand & cmd = this->getCommand(le.commandIndex);
+  cmd.selection.highlightElement = le.elementIndex;
+  cmd.selection.highlightColor = color;
+}
+
+void
+SoDrawList::clearHighlight()
+{
+  int n = this->getNumCommands();
+  for (int i = 0; i < n; ++i) {
+    SoRenderCommand & cmd = this->getCommand(i);
+    if (cmd.selection.highlightElement != -1) {
+      cmd.selection.highlightElement = -1;
+    }
+  }
 }
 
 uint64_t

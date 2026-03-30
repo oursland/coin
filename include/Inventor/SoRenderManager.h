@@ -196,6 +196,14 @@ public:
   /// Resolve a pick LUT index to a pick identity string.
   /// Returns tab-separated "pickIdentity\tElementName" or empty string.
   std::string resolveGpuPickIdentity(uint32_t lutIndex) const;
+
+  /// Get the stored scene graph path for a pick LUT entry's command.
+  /// Returns NULL if not available. Path is ref'd and owned by the action.
+  SoPath * getGpuPickPath(uint32_t lutIndex) const;
+
+  /// Get the element index (face/edge/vertex) for a pick LUT entry.
+  /// Returns -1 if index is out of range.
+  int getGpuPickElement(uint32_t lutIndex) const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

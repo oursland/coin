@@ -24,6 +24,9 @@ if (COIN_USE_TRACY)
   if (COIN_TRACY_INCLUDE_DIR)
     include_directories(${COIN_TRACY_INCLUDE_DIR})
   endif()
+  if (APPLE)
+    add_link_options(-undefined dynamic_lookup)
+  endif()
 endif()
 
 include_directories(BEFORE

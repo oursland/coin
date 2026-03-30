@@ -53,6 +53,7 @@ private:
   GLint  uProjLocation;
   GLint  uModelLocation;
   GLint  uColorLocation;
+  GLint  uEmissiveLocation;
   bool   vaoInitialized;
   bool   createShaders();
 

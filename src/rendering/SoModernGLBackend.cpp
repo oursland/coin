@@ -2,6 +2,7 @@
 
 #include "rendering/SoModernGLBackend.h"
 #include "rendering/SoVBO.h"
+#include "CoinTracyConfig.h"
 
 // macOS legacy GL headers provide VAO functions with APPLE suffix
 #if defined(__APPLE__) && !defined(glGenVertexArrays)
@@ -183,6 +184,7 @@ SoModernGLBackend::SoModernGLBackend()
   this->uProjLocation = -1;
   this->uModelLocation = -1;
   this->uColorLocation = -1;
+  this->uEmissiveLocation = -1;
   this->vaoInitialized = FALSE;
 }
 
@@ -268,6 +270,7 @@ SbBool
 SoModernGLBackend::render(const SoDrawList & drawlist,
                           const SoRenderParams & params)
 {
+  ZoneScopedN("GLBackend::render");
   this->debugValidateDrawList(drawlist);
   this->logFrameStats(drawlist, params);
 
@@ -308,6 +311,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // Cache attribute locations (once)
   GLint posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
   GLint normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
+
+  // Default: lighting enabled
+  glUniform1f(this->uEmissiveLocation, 0.0f);
 
   // Lambda to draw a single command using the fallback shader + CPU data path
   auto drawCommand = [&](const SoRenderCommand & cmd) {
@@ -389,6 +395,120 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     drawCommand(cmd);
   }
 
+  // Pass 3: Selection/highlight overlays — emissive flat color on top
+  glDepthMask(GL_FALSE);
+  glDepthFunc(GL_LEQUAL);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glUniform1f(this->uEmissiveLocation, 1.0f);
+
+  {
+    int hlCount = 0, selCount = 0;
+    for (int i = 0; i < count; ++i) {
+      const SoRenderCommand & c = drawlist.getCommand(i);
+      if (c.selection.highlightElement != -1) {
+        hlCount++;
+        // Log the memory address to see if it's the same command or reused memory
+        ZoneScopedN("hl found");
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d addr=%p topo=%d verts=%u",
+                      i, c.selection.highlightElement, (void*)&c,
+                      (int)c.geometry.topology, c.geometry.vertexCount);
+        ZoneText(buf, std::strlen(buf));
+      }
+      if (!c.selection.selectedElements.empty()) selCount++;
+    }
+    if (hlCount > 0 || selCount > 0) {
+      ZoneScopedN("overlay stats");
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "hl=%d sel=%d total=%d", hlCount, selCount, count);
+      ZoneText(buf, std::strlen(buf));
+    }
+  }
+
+  // Helper: draw a face range or whole command
+  auto drawFaceRange = [&](const SoRenderCommand & cmd, int faceIdx, GLenum prim) {
+    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+      if (faceIdx >= 0 && faceIdx < static_cast<int>(cmd.pick.faceStart.size())) {
+        int offset = cmd.pick.faceStart[faceIdx];
+        int cnt = cmd.pick.faceCount[faceIdx];
+        glDrawElements(prim, cnt, GL_UNSIGNED_INT,
+                       reinterpret_cast<const void *>(
+                         static_cast<uintptr_t>(offset * sizeof(uint32_t))));
+      }
+      else {
+        glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
+      }
+    }
+    else {
+      glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+    }
+  };
+
+  for (int i = 0; i < count; ++i) {
+    const SoRenderCommand & cmd = drawlist.getCommand(i);
+    int hlElem = cmd.selection.highlightElement;
+    bool hasHighlight = (hlElem != -1);
+    bool hasSelection = !cmd.selection.selectedElements.empty();
+    if (!hasHighlight && !hasSelection) continue;
+
+    {
+      ZoneScopedN("overlay cmd");
+      char buf[256];
+      std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d sel=%zu id=%.60s topo=%d",
+                    i, hlElem, cmd.selection.selectedElements.size(),
+                    cmd.pick.pickIdentity.c_str(), (int)cmd.geometry.topology);
+      ZoneText(buf, std::strlen(buf));
+    }
+    if (!cmd.geometry.positions || posLoc < 0) continue;
+
+    SbMat modelMat;
+    cmd.modelMatrix.getValue(modelMat);
+    glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+
+    GLenum prim = topologyToGL(cmd.geometry.topology);
+    GLsizei stride = static_cast<GLsizei>(
+      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+
+    // Upload geometry once
+    glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+                 cmd.geometry.vertexCount * stride,
+                 cmd.geometry.positions, GL_STREAM_DRAW);
+    glEnableVertexAttribArray(posLoc);
+    glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+    if (normLoc >= 0) {
+      glDisableVertexAttribArray(normLoc);
+      glVertexAttrib3f(normLoc, 0.0f, 0.0f, 1.0f);
+    }
+    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                   cmd.geometry.indexCount * sizeof(uint32_t),
+                   cmd.geometry.indices, GL_STREAM_DRAW);
+    }
+
+    // Draw selection overlays first (underneath highlight)
+    if (hasSelection) {
+      const SbVec4f & sc = cmd.selection.selectionColor;
+      glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 0.5f);
+      for (int elem : cmd.selection.selectedElements) {
+        drawFaceRange(cmd, elem, prim);
+      }
+    }
+
+    // Draw highlight on top
+    if (hasHighlight) {
+      const SbVec4f & hc = cmd.selection.highlightColor;
+      glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], 0.6f);
+      drawFaceRange(cmd, hlElem, prim);
+    }
+
+    if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
+  }
+
+  glUniform1f(this->uEmissiveLocation, 0.0f);  // Restore lighting mode
+  glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
   glBindVertexArray(0);
@@ -491,16 +611,19 @@ SoModernGLBackend::createShaders()
 
   static const char * fragmentSource =
     "#version 120\n"
+    "uniform float u_emissive;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
     "void main() {\n"
+    "  if (u_emissive > 0.5) {\n"
+    "    gl_FragColor = v_color;\n"  // Flat emissive — no lighting
+    "    return;\n"
+    "  }\n"
     "  vec3 N = normalize(v_eyeNormal);\n"
-    // Two-sided lighting: flip normal to face the camera
     "  if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) N = -N;\n"
-    // Directional headlight fixed in eye space: always along +Z (toward viewer)
     "  vec3 L = vec3(0.0, 0.0, 1.0);\n"
-    "  float NdotL = dot(N, L);\n"  // always >= 0 after flip
+    "  float NdotL = dot(N, L);\n"
     "  vec3 V = normalize(-v_eyePos);\n"
     "  vec3 H = normalize(L + V);\n"
     "  float NdotH = max(dot(N, H), 0.0);\n"
@@ -528,5 +651,6 @@ SoModernGLBackend::createShaders()
   this->uProjLocation = glGetUniformLocation(this->shaderProgram, "u_proj");
   this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
+  this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
   return TRUE;
 }

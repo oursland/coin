@@ -7,6 +7,7 @@
 #include "rendering/SoIDPickBuffer.h"
 #include "rendering/SoModernIR.h"
 #include "rendering/SoVAO.h"
+#include "CoinTracyConfig.h"
 
 #include <Inventor/errors/SoDebugError.h>
 #include <Inventor/system/gl.h>
@@ -210,6 +211,7 @@ SoIDPickBuffer::resize(int width, int height)
 void
 SoIDPickBuffer::buildIdColorVBOs(const SoDrawList & drawlist, uint32_t /*contextId*/)
 {
+  ZoneScopedN("buildIdColorVBOs");
   const auto & lut = drawlist.getPickLUT();
   int numCmds = drawlist.getNumCommands();
 
@@ -285,6 +287,7 @@ void
 SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
                        const SoDrawList & drawlist)
 {
+  ZoneScopedN("IDPickBuffer::render");
   if (!fbo || !shaderInitialized) return;
 
   GLint prevFbo = 0;
@@ -336,6 +339,18 @@ void
 SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
                              const SoDrawList & drawlist)
 {
+  ZoneScopedN("IDPickBuffer::renderIdPass");
+
+  // Save GL state that we modify
+  GLint prevViewport[4];
+  glGetIntegerv(GL_VIEWPORT, prevViewport);
+  GLfloat prevLineWidth;
+  glGetFloatv(GL_LINE_WIDTH, &prevLineWidth);
+  GLfloat prevPointSize;
+  glGetFloatv(GL_POINT_SIZE, &prevPointSize);
+  GLint prevProgram;
+  glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+
   glBindFramebuffer(GL_FRAMEBUFFER, fbo);
   glViewport(0, 0, fbWidth, fbHeight);
 
@@ -353,33 +368,66 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
 
   int numCmds = drawlist.getNumCommands();
 
+  // Ensure temp VBOs exist
+  if (tempPosVBO == 0) glGenBuffers(1, &tempPosVBO);
+  if (tempIdxVBO == 0) glGenBuffers(1, &tempIdxVBO);
+
+  // Get attribute locations
+  GLint posLoc = glGetAttribLocation(shaderProgram, "aPos");
+  GLint idColorLoc = glGetAttribLocation(shaderProgram, "aIdColor");
+
+  // Helper: draw one command with its ID color VBO
+  auto drawIdCmd = [&](const SoRenderCommand & cmd, int ci, GLenum prim) {
+    if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) return;
+    if (!cmd.geometry.positions || cmd.geometry.vertexCount == 0) return;
+
+    SbMat modelMat;
+    cmd.modelMatrix.getValue(modelMat);
+    glUniformMatrix4fv(uIdModel, 1, GL_FALSE, &modelMat[0][0]);
+
+    GLsizei stride = static_cast<GLsizei>(
+      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+
+    // Upload positions to temp VBO
+    glBindBuffer(GL_ARRAY_BUFFER, tempPosVBO);
+    glBufferData(GL_ARRAY_BUFFER, cmd.geometry.vertexCount * stride,
+                 cmd.geometry.positions, GL_STREAM_DRAW);
+    if (posLoc >= 0) {
+      glEnableVertexAttribArray(posLoc);
+      glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, NULL);
+    }
+
+    // Bind per-vertex ID color
+    if (idColorLoc >= 0) {
+      glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
+      glEnableVertexAttribArray(idColorLoc);
+      glVertexAttribPointer(idColorLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, NULL);
+    }
+
+    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tempIdxVBO);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                   cmd.geometry.indexCount * sizeof(uint32_t),
+                   cmd.geometry.indices, GL_STREAM_DRAW);
+      glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, NULL);
+    }
+    else {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+      glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+    }
+
+    if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
+    if (idColorLoc >= 0) glDisableVertexAttribArray(idColorLoc);
+  };
+
   // Pass 1: Triangles with polygon offset
   glEnable(GL_POLYGON_OFFSET_FILL);
   glPolygonOffset(1.0f, 1.0f);
-
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
         cmd.geometry.topology != SO_TOPOLOGY_TRIANGLE_STRIP) continue;
-    if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) continue;
-    if (!cmd.geometry.cache.vao) continue;
-
-    glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    cmd.geometry.cache.vao->bind(0);
-
-    // Bind per-vertex ID color as attribute 2
-    glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, NULL);
-
-    if (cmd.geometry.indexCount > 0) {
-      glDrawElements(GL_TRIANGLES, cmd.geometry.indexCount, GL_UNSIGNED_INT, NULL);
-    }
-    else {
-      glDrawArrays(GL_TRIANGLES, 0, cmd.geometry.vertexCount);
-    }
-
-    glDisableVertexAttribArray(2);
+    drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
   glDisable(GL_POLYGON_OFFSET_FILL);
 
@@ -388,48 +436,26 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
         cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
-    if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) continue;
-    if (!cmd.geometry.cache.vao) continue;
-
-    glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    cmd.geometry.cache.vao->bind(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, NULL);
-
     glLineWidth(std::max(cmd.state.raster.lineWidth, 5.0f));
-    if (cmd.geometry.indexCount > 0) {
-      glDrawElements(GL_LINES, cmd.geometry.indexCount, GL_UNSIGNED_INT, NULL);
-    }
-    else {
-      glDrawArrays(GL_LINES, 0, cmd.geometry.vertexCount);
-    }
-
-    glDisableVertexAttribArray(2);
+    drawIdCmd(cmd, ci, GL_LINES);
   }
 
   // Pass 3: Points
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
-    if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) continue;
-    if (!cmd.geometry.cache.vao) continue;
-
-    glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    cmd.geometry.cache.vao->bind(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, NULL);
-
     glPointSize(7.0f);
-    glDrawArrays(GL_POINTS, 0, cmd.geometry.vertexCount);
-
-    glDisableVertexAttribArray(2);
+    drawIdCmd(cmd, ci, GL_POINTS);
   }
 
-  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+  // Restore GL state
+  glLineWidth(prevLineWidth);
+  glPointSize(prevPointSize);
+  glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+  glUseProgram(prevProgram);
 }
 
 // -----------------------------------------------------------------------
@@ -439,6 +465,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
 uint32_t
 SoIDPickBuffer::pick(int x, int y, int pickRadius) const
 {
+  ZoneScopedN("IDPickBuffer::pick");
   if (!fbo || cachedColor.empty()) return 0;
 
   int side = 2 * pickRadius + 1;
