@@ -10,6 +10,7 @@ set(COIN_RENDERING_FILES
 	SoRenderBackend.cpp
 	SoModernIR.cpp
 	SoModernGLBackend.cpp
+	SoIDPickBuffer.cpp
 	SoRenderManager.cpp
 	SoRenderManagerP.cpp
 	SoOffscreenRenderer.cpp
@@ -32,6 +33,8 @@ set(COIN_RENDERING_INTERNAL_FILES
 	SoModernIR.h
 	SoRenderBackend.h
 	SoModernGLBackend.h
+	SoIDPickBuffer.h
+	SoIDPickBuffer.cpp
 	SoRenderManagerP.h
 	SoRenderManagerP.cpp
 	SoOffscreenCGData.h
