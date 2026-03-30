@@ -82,6 +82,7 @@
 #include <Inventor/actions/SoAudioRenderAction.h>
 #include <Inventor/actions/SoGLRenderAction.h>
 #include <Inventor/actions/SoModernRenderAction.h>
+#include "CoinTracyConfig.h"
 #include <Inventor/SbTime.h>
 #include <Inventor/SbViewVolume.h>
 #include <Inventor/sensors/SoOneShotSensor.h>
@@ -506,9 +507,22 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   // Build pick LUT after traversal, before rendering
   action->getMutableDrawList().buildPickLUT();
 
-  // TODO: debug — any non-(-1) highlight at this point is from context reading
-  // in SoBrepFaceSet::render(), which means getRenderContext IS finding state.
-  // The Tracy logging in FreeCAD may not fire due to zone nesting limits.
+  // Debug: scan for highlights set during traversal
+  {
+    int n = action->getMutableDrawList().getNumCommands();
+    for (int i = 0; i < n; ++i) {
+      auto & c = action->getMutableDrawList().getCommand(i);
+      if (c.selection.highlightElement != -1 || !c.selection.selectedElements.empty()) {
+        ZoneScopedN("pre-render hl/sel");
+        char buf[192];
+        std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d sel=%zu id=%.80s",
+                      i, c.selection.highlightElement,
+                      c.selection.selectedElements.size(),
+                      c.pick.pickIdentity.c_str());
+        ZoneText(buf, std::strlen(buf));
+      }
+    }
+  }
 
   const SoDrawList & list = action->getDrawList();
   SoRenderParams params = {};
