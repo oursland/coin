@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 class SoGLShaderProgram;
@@ -152,6 +153,40 @@ typedef uint32_t SoLightingHandle;
 typedef uint64_t SoPipelineKey;
 
 /*!
+  \struct SoPickData
+  \brief Per-command pick identification data for GPU ID buffer picking.
+
+  Populated during SoModernRenderAction traversal. The pick LUT maps
+  sequential IDs to (commandIndex, elementType, elementIndex) tuples.
+  The pickIdentity string carries application-level naming context
+  (e.g., "docName\tobjName\tsubPrefix" in FreeCAD).
+*/
+struct SoPickData {
+  uint32_t    pickLutBase = 0;   //!< First LUT entry index for this command
+  uint32_t    pickLutCount = 0;  //!< Number of LUT entries (faces + edges + vertices)
+  std::string pickIdentity;      //!< Application pick identity (opaque to Coin)
+
+  //! Per-face element ranges for BRep shapes.
+  //! faceStart[i] = index offset in EBO, faceCount[i] = element count.
+  std::vector<int> faceStart;
+  std::vector<int> faceCount;
+};
+
+/*!
+  \struct SoSelectionData
+  \brief Mutable selection/highlight state for a render command.
+
+  These fields can be modified directly (without re-traversal) to update
+  preselection highlighting and click selection at interactive rates.
+*/
+struct SoSelectionData {
+  int         highlightElement = -1;  //!< -1=none, -2=whole body, >=0=face index
+  SbVec4f     highlightColor;
+  std::vector<int> selectedElements;  //!< empty=none, {-1}=all, else element IDs
+  SbVec4f     selectionColor;
+};
+
+/*!
   \struct SoRenderCommand
   \brief Complete description of a single draw call in the IR.
 */
@@ -166,6 +201,9 @@ struct SoRenderCommand {
   SoLightingHandle lightingHandle;
   SoPipelineKey    pipelineKey;
   SoGLShaderProgram * shaderProgram;
+
+  SoPickData       pick;       //!< GPU pick identification
+  SoSelectionData  selection;  //!< Mutable highlight/selection state
 
   uint64_t         sortKey;
   void *           userData;
@@ -197,6 +235,31 @@ private:
 };
 
 /*!
+  \enum SoPickElementType
+  \brief Element types for pick identification.
+*/
+enum SoPickElementType : uint8_t {
+  SO_PICK_FACE = 0,
+  SO_PICK_EDGE = 1,
+  SO_PICK_VERTEX = 2,
+  SO_PICK_WHOLE_BODY = 3
+};
+
+/*!
+  \struct SoPickLUTEntry
+  \brief Maps a sequential render ID to a specific element of a draw command.
+*/
+struct SoPickLUTEntry {
+  int                commandIndex;  //!< Index into SoDrawList
+  SoPickElementType  elementType;
+  int                elementIndex;  //!< Face/edge/vertex index (0-based)
+
+  // Draw parameters for the ID buffer pass
+  int                eboOffset;     //!< Index offset in EBO (for per-face draws)
+  int                eboCount;      //!< Element count (for per-face draws)
+};
+
+/*!
   \class SoDrawList
   \brief Container holding the ordered list of SoRenderCommand objects for a frame.
 */
@@ -219,8 +282,22 @@ public:
   const SoRenderCommand * begin() const;
   const SoRenderCommand * end() const;
 
+  // --- Pick LUT ---
+  //! Access the pick look-up table (built after commands are collected).
+  const std::vector<SoPickLUTEntry> & getPickLUT() const { return pickLUT; }
+  std::vector<SoPickLUTEntry> & getMutablePickLUT() { return pickLUT; }
+
+  //! Build the pick LUT from the current commands. Each face of BRep
+  //! shapes gets a separate entry; edges/points/whole-body get one each.
+  void buildPickLUT();
+
+  //! Resolve a pick LUT index (1-based) to a pick identity string.
+  //! Returns empty string if index is out of range.
+  std::string resolvePickIdentity(uint32_t lutIndex) const;
+
 private:
   SbList<SoRenderCommand> commands;
+  std::vector<SoPickLUTEntry> pickLUT;
 };
 
 /*! Utility helpers declared in SoModernIR.cpp */

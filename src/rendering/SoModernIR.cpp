@@ -64,6 +64,7 @@ void
 SoDrawList::clear()
 {
   this->commands.truncate(0);
+  this->pickLUT.clear();
 }
 
 void
@@ -130,6 +131,102 @@ SoDrawList::end() const
 {
   return this->commands.getLength() ?
          this->commands.getArrayPtr() + this->commands.getLength() : nullptr;
+}
+
+void
+SoDrawList::buildPickLUT()
+{
+  pickLUT.clear();
+  int numCmds = this->getNumCommands();
+
+  for (int ci = 0; ci < numCmds; ci++) {
+    SoRenderCommand & cmd = this->getCommand(ci);
+    cmd.pick.pickLutBase = static_cast<uint32_t>(pickLUT.size());
+
+    if (!cmd.pick.faceStart.empty()) {
+      // BRep shape with per-face ranges: one LUT entry per face
+      int numFaces = static_cast<int>(cmd.pick.faceStart.size());
+      for (int f = 0; f < numFaces; f++) {
+        SoPickLUTEntry le;
+        le.commandIndex = ci;
+        le.elementType = SO_PICK_FACE;
+        le.elementIndex = f;
+        le.eboOffset = cmd.pick.faceStart[f];
+        le.eboCount = cmd.pick.faceCount[f];
+        pickLUT.push_back(le);
+      }
+    }
+    else if (cmd.geometry.topology == SO_TOPOLOGY_TRIANGLES ||
+             cmd.geometry.topology == SO_TOPOLOGY_TRIANGLE_STRIP) {
+      // Triangle mesh without face ranges: whole body
+      SoPickLUTEntry le;
+      le.commandIndex = ci;
+      le.elementType = SO_PICK_WHOLE_BODY;
+      le.elementIndex = 0;
+      le.eboOffset = 0;
+      le.eboCount = 0;
+      pickLUT.push_back(le);
+    }
+    else if (cmd.geometry.topology == SO_TOPOLOGY_LINES ||
+             cmd.geometry.topology == SO_TOPOLOGY_LINE_STRIP) {
+      // Edge set
+      SoPickLUTEntry le;
+      le.commandIndex = ci;
+      le.elementType = SO_PICK_EDGE;
+      le.elementIndex = 0;
+      le.eboOffset = 0;
+      le.eboCount = 0;
+      pickLUT.push_back(le);
+    }
+    else if (cmd.geometry.topology == SO_TOPOLOGY_POINTS) {
+      // Point set
+      SoPickLUTEntry le;
+      le.commandIndex = ci;
+      le.elementType = SO_PICK_VERTEX;
+      le.elementIndex = 0;
+      le.eboOffset = 0;
+      le.eboCount = 0;
+      pickLUT.push_back(le);
+    }
+
+    cmd.pick.pickLutCount = static_cast<uint32_t>(pickLUT.size()) - cmd.pick.pickLutBase;
+  }
+}
+
+std::string
+SoDrawList::resolvePickIdentity(uint32_t lutIndex) const
+{
+  if (lutIndex == 0 || lutIndex > pickLUT.size()) {
+    return {};
+  }
+  const SoPickLUTEntry & le = pickLUT[lutIndex - 1];
+  if (le.commandIndex < 0 || le.commandIndex >= this->getNumCommands()) {
+    return {};
+  }
+  const SoRenderCommand & cmd = this->getCommand(le.commandIndex);
+  if (cmd.pick.pickIdentity.empty()) {
+    return {};
+  }
+
+  // Compose: pickIdentity + element name suffix
+  std::string result = cmd.pick.pickIdentity;
+
+  switch (le.elementType) {
+    case SO_PICK_FACE:
+      result += "Face" + std::to_string(le.elementIndex + 1);
+      break;
+    case SO_PICK_EDGE:
+      result += "Edge" + std::to_string(le.elementIndex + 1);
+      break;
+    case SO_PICK_VERTEX:
+      result += "Vertex" + std::to_string(le.elementIndex + 1);
+      break;
+    case SO_PICK_WHOLE_BODY:
+      // No element suffix
+      break;
+  }
+
+  return result;
 }
 
 uint64_t
