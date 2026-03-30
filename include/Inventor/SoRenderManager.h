@@ -180,6 +180,10 @@ public:
   SoGLRenderAction * getGLRenderAction(void) const;
   void setModernRenderEnabled(SbBool enable);
   SbBool isModernRenderEnabled(void) const;
+
+  /// Access the modern render backend (NULL if not initialized).
+  /// Used for GPU picking via backend->pick().
+  class SoRenderBackend * getModernBackend(void) const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

@@ -1754,6 +1754,12 @@ SoRenderManager::isModernRenderEnabled(void) const
   return PRIVATE(this)->modernEnabled;
 }
 
+SoRenderBackend *
+SoRenderManager::getModernBackend(void) const
+{
+  return PRIVATE(this)->modernBackend;
+}
+
 /*!
   Returns pointer to render action.
  */
