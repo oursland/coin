@@ -34,6 +34,16 @@
 #include "SoGLSLShaderObject.h"
 
 #include <Inventor/errors/SoDebugError.h>
+
+// GL 3.1+ sampler types not in macOS legacy GL headers
+#ifdef __APPLE__
+#ifndef GL_SAMPLER_2D_RECT
+#define GL_SAMPLER_2D_RECT 0x8B63
+#endif
+#ifndef GL_SAMPLER_2D_RECT_SHADOW
+#define GL_SAMPLER_2D_RECT_SHADOW 0x8B64
+#endif
+#endif
 #include <cstdio>
 
 // *************************************************************************

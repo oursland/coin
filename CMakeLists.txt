@@ -49,7 +49,7 @@ endif()
 # ############################################################################
 # Set minimum C++ standard needed to compile the Coin code
 # ############################################################################
-set( CMAKE_CXX_STANDARD 11 CACHE STRING "C++ standard used for the build" )
+set( CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard used for the build" )
 message( STATUS "Setting C++ standard: '${CMAKE_CXX_STANDARD}', which is the minimum needed to compile Coin.")
 
 # ############################################################################
@@ -98,6 +98,8 @@ option(HAVE_SOUND "Enable OpenAL sound support." ON)
 option(HAVE_3DS_IMPORT_CAPABILITIES "Enable 3ds import capabilities." ON)
 option(USE_EXTERNAL_EXPAT "Use system install of Expat." OFF)
 option(USE_EXCEPTIONS "Compile with exceptions (g++ only)." ON)
+option(COIN_USE_TRACY "Enable Tracy profiling support." OFF)
+set(COIN_TRACY_INCLUDE_DIR "" CACHE PATH "Path to Tracy public include directory.")
 option(USE_SUPERGLU "Use superglu library when ON, GLU implementation of platform when OFF (default)." OFF)
 
 option(FONTCONFIG_RUNTIME_LINKING   "Enable FontConfig runtime linking when ON (default), disable when OFF." ON)

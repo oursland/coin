@@ -58,6 +58,42 @@
 
 // *************************************************************************
 
+// Enable NV/ARB extension defines on macOS — these extensions are only used
+// in the sorted-layers-blend transparency code path which is never active on
+// macOS (no NV hardware). The defines just need to compile.
+#ifdef __APPLE__
+#ifndef GL_NV_texture_shader
+#define GL_NV_texture_shader 1
+#endif
+#ifndef GL_NV_register_combiners
+#define GL_NV_register_combiners 1
+#endif
+#ifndef GL_NV_texture_rectangle
+#define GL_NV_texture_rectangle 1
+#endif
+#ifndef GL_ARB_fragment_program
+#define GL_ARB_fragment_program 1
+#endif
+#ifndef GL_ARB_texture_rectangle
+#define GL_ARB_texture_rectangle 1
+#endif
+#ifndef GL_NV_float_buffer
+#define GL_NV_float_buffer 1
+#endif
+// GL_TEXTURE_RECTANGLE_NV is NV's alias for the ARB version
+#ifndef GL_TEXTURE_RECTANGLE_NV
+#define GL_TEXTURE_RECTANGLE_NV 0x84F5
+#endif
+// GL_HILO_NV
+#ifndef GL_HILO_NV
+#define GL_HILO_NV 0x8633
+#endif
+// GL_ALPHA_TEST removed in core profile but available in compat
+#ifndef GL_ALPHA_TEST
+#define GL_ALPHA_TEST 0x0BC0
+#endif
+#endif // __APPLE__
+
 #include <Inventor/actions/SoGLRenderAction.h>
 
 #ifdef HAVE_CONFIG_H

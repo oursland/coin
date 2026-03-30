@@ -34,11 +34,17 @@
 #include "Inventor/C/glue/gl.h"
 #include "coindefs.h"
 
-#include <GL/glext.h>
+#include <Inventor/system/gl.h>
 #include <cassert>
 #include <cstdio>
 #include <Inventor/errors/SoDebugError.h>
-#include <Inventor/system/gl.h>
+
+// GL 3.2+ shader types not in macOS legacy GL headers
+#ifdef __APPLE__
+#ifndef GL_GEOMETRY_SHADER
+#define GL_GEOMETRY_SHADER 0x8DD9
+#endif
+#endif
 
 #include "glue/glp.h"
 #include "rendering/SoGL.h"

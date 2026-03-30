@@ -41,6 +41,13 @@
 #include "rendering/SoVBO.h"
 #include "glue/glp.h"
 
+// macOS legacy GL headers provide VAO functions with APPLE suffix
+#if defined(__APPLE__) && !defined(glGenVertexArrays)
+#define glGenVertexArrays    glGenVertexArraysAPPLE
+#define glBindVertexArray    glBindVertexArrayAPPLE
+#define glDeleteVertexArrays glDeleteVertexArraysAPPLE
+#endif
+
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>

@@ -46,7 +46,10 @@
 #define GL_GLEXT_PROTOTYPES 1
 #endif
 
-#if !defined(COIN_GL_COMPATIBILITY) || (COIN_GL_COMPATIBILITY+0)==0
+/* These guards only apply during Coin's own build (COIN_INTERNAL) in
+   core-profile mode (!COIN_GL_COMPATIBILITY).  Consumer builds may freely
+   mix legacy GL headers. */
+#if defined(COIN_INTERNAL) && (!defined(COIN_GL_COMPATIBILITY) || (COIN_GL_COMPATIBILITY+0)==0)
 # if defined(__gl_h_) || defined(__GL_H__) || (defined(GL_VERSION_1_1) && !defined(GLCOREARB_H))
 #  error "Legacy <GL/gl.h> detected before core headers. Use core headers only."
 # endif

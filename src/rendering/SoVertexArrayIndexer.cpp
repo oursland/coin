@@ -39,7 +39,7 @@
 
 #include "rendering/SoVertexArrayIndexer.h"
 
-#include <GL/gl.h>
+#include <Inventor/system/gl.h>
 #include <cassert>
 #include <cstring>
 #include <cstdio>

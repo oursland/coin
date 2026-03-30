@@ -6,8 +6,17 @@
 
 #include "rendering/SoIDPickBuffer.h"
 #include "rendering/SoModernIR.h"
+#include "rendering/SoVAO.h"
 
 #include <Inventor/errors/SoDebugError.h>
+#include <Inventor/system/gl.h>
+
+// macOS legacy GL headers provide VAO functions with APPLE suffix
+#if defined(__APPLE__) && !defined(glGenVertexArrays)
+#define glGenVertexArrays    glGenVertexArraysAPPLE
+#define glBindVertexArray    glBindVertexArrayAPPLE
+#define glDeleteVertexArrays glDeleteVertexArraysAPPLE
+#endif
 
 #include <Inventor/C/glue/gl.h>
 
@@ -356,7 +365,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (!cmd.geometry.cache.vao) continue;
 
     glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    glBindVertexArray(cmd.geometry.cache.vao->getGLId());
+    cmd.geometry.cache.vao->bind(0);
 
     // Bind per-vertex ID color as attribute 2
     glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
@@ -383,7 +392,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (!cmd.geometry.cache.vao) continue;
 
     glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    glBindVertexArray(cmd.geometry.cache.vao->getGLId());
+    cmd.geometry.cache.vao->bind(0);
 
     glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
     glEnableVertexAttribArray(2);
@@ -408,7 +417,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (!cmd.geometry.cache.vao) continue;
 
     glUniformMatrix4fv(uIdModel, 1, GL_TRUE, cmd.modelMatrix[0]);
-    glBindVertexArray(cmd.geometry.cache.vao->getGLId());
+    cmd.geometry.cache.vao->bind(0);
 
     glBindBuffer(GL_ARRAY_BUFFER, idColorVBOs[ci]);
     glEnableVertexAttribArray(2);
