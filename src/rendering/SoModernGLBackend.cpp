@@ -210,6 +210,14 @@ SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
     this->emitError("failed to create ModernGL shader");
     return FALSE;
   }
+
+  // Initialize GPU pick buffer
+  pickBuffer = std::make_unique<SoIDPickBuffer>();
+  if (!pickBuffer->initialize()) {
+    this->emitLog("ID pick buffer initialization failed (picking disabled)");
+    pickBuffer.reset();
+  }
+
   this->setInitialized(TRUE);
   return TRUE;
 }
@@ -220,6 +228,8 @@ SoModernGLBackend::shutdown()
   if (!this->isInitialized()) {
     return;
   }
+  pickBuffer.reset();
+
   if (this->vertexBuffer) {
     glDeleteBuffers(1, &this->vertexBuffer);
     this->vertexBuffer = 0;
@@ -246,6 +256,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 {
   this->debugValidateDrawList(drawlist);
   this->logFrameStats(drawlist, params);
+
+  // Mark pick buffer dirty when camera changes
+  // (viewProjMatrix changes between frames when camera moves)
+  this->pickBufferDirty = true;  // Conservative: always dirty, optimized later
+
   if (!this->shaderProgram) return TRUE;
   if (this->vao == 0) {
     glGenVertexArrays(1, &this->vao);
@@ -421,6 +436,29 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   glBindVertexArray(0);
   glUseProgram(0);
 
+  // Render ID buffer for GPU picking (when pick LUT exists)
+  if (pickBuffer) {
+    const auto & lut = drawlist.getPickLUT();
+    SbVec2s vpSize = params.viewport.getViewportSizePixels();
+    pickBuffer->resize(vpSize[0], vpSize[1]);
+
+    // Only rebuild per-vertex ID colors when LUT changes
+    if (lut.size() != lastPickLUTSize) {
+      pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
+      lastPickLUTSize = lut.size();
+      pickBufferDirty = true;
+    }
+
+    // Only re-render ID buffer when camera moved or LUT changed
+    if (pickBufferDirty && !lut.empty()) {
+      SbMat viewMat, projMat;
+      params.viewMatrix.getValue(viewMat);
+      params.projMatrix.getValue(projMat);
+      pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist);
+      pickBufferDirty = false;
+    }
+  }
+
   return TRUE;
 }
 
@@ -428,7 +466,15 @@ void
 SoModernGLBackend::resizeTarget(const SoRenderTargetInfo & info)
 {
   this->storedparams.targetInfo = info;
+  this->pickBufferDirty = true;
   SoRenderBackend::resizeTarget(info);
+}
+
+uint32_t
+SoModernGLBackend::pick(int x, int y, int pickRadius) const
+{
+  if (!pickBuffer) return 0;
+  return pickBuffer->pick(x, y, pickRadius);
 }
 
 void
