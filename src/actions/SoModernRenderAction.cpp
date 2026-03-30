@@ -22,6 +22,30 @@
 #include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
+#include <Inventor/elements/SoCoordinateElement.h>
+#include <Inventor/elements/SoNormalElement.h>
+#include <Inventor/elements/SoCreaseAngleElement.h>
+#include <Inventor/elements/SoComplexityElement.h>
+#include <Inventor/elements/SoComplexityTypeElement.h>
+#include <Inventor/elements/SoMultiTextureCoordinateElement.h>
+#include <Inventor/elements/SoProfileElement.h>
+#include <Inventor/elements/SoProfileCoordinateElement.h>
+#include <Inventor/elements/SoTextureQualityElement.h>
+#include <Inventor/elements/SoSwitchElement.h>
+#include <Inventor/elements/SoUnitsElement.h>
+#include <Inventor/elements/SoShapeHintsElement.h>
+#include <Inventor/elements/SoFocalDistanceElement.h>
+#include <Inventor/elements/SoFontNameElement.h>
+#include <Inventor/elements/SoFontSizeElement.h>
+#include <Inventor/elements/SoGLViewportRegionElement.h>
+#include <Inventor/elements/SoGLUpdateAreaElement.h>
+#include <Inventor/elements/SoGLRenderPassElement.h>
+#include <Inventor/elements/SoGLLightIdElement.h>
+#include <Inventor/elements/SoDecimationPercentageElement.h>
+#include <Inventor/elements/SoDecimationTypeElement.h>
+#include <Inventor/elements/SoTextureOverrideElement.h>
+#include <Inventor/elements/SoWindowElement.h>
+#include <Inventor/elements/SoPointSizeElement.h>
 #include <Inventor/nodes/SoShaderProgram.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoNode.h>
@@ -75,6 +99,34 @@ SoModernRenderAction::initClass(void)
   SO_ENABLE(SoModernRenderAction, SoBumpMapCoordinateElement);
   SO_ENABLE(SoModernRenderAction, SoGLCacheContextElement);
   SO_ENABLE(SoModernRenderAction, SoMultiTextureEnabledElement);
+
+  // Elements needed by generatePrimitives() fallback in SoShape::render()
+  SO_ENABLE(SoModernRenderAction, SoCoordinateElement);
+  SO_ENABLE(SoModernRenderAction, SoNormalElement);
+  SO_ENABLE(SoModernRenderAction, SoCreaseAngleElement);
+  SO_ENABLE(SoModernRenderAction, SoComplexityElement);
+  SO_ENABLE(SoModernRenderAction, SoComplexityTypeElement);
+  SO_ENABLE(SoModernRenderAction, SoMultiTextureCoordinateElement);
+  SO_ENABLE(SoModernRenderAction, SoProfileElement);
+  SO_ENABLE(SoModernRenderAction, SoProfileCoordinateElement);
+  SO_ENABLE(SoModernRenderAction, SoTextureQualityElement);
+  SO_ENABLE(SoModernRenderAction, SoSwitchElement);
+  SO_ENABLE(SoModernRenderAction, SoUnitsElement);
+
+  // Scene state elements needed by standard nodes during traversal
+  SO_ENABLE(SoModernRenderAction, SoShapeHintsElement);
+  SO_ENABLE(SoModernRenderAction, SoFocalDistanceElement);
+  SO_ENABLE(SoModernRenderAction, SoFontNameElement);
+  SO_ENABLE(SoModernRenderAction, SoFontSizeElement);
+  SO_ENABLE(SoModernRenderAction, SoPointSizeElement);
+  SO_ENABLE(SoModernRenderAction, SoGLViewportRegionElement);
+  SO_ENABLE(SoModernRenderAction, SoGLUpdateAreaElement);
+  SO_ENABLE(SoModernRenderAction, SoGLRenderPassElement);
+  SO_ENABLE(SoModernRenderAction, SoGLLightIdElement);
+  SO_ENABLE(SoModernRenderAction, SoDecimationPercentageElement);
+  SO_ENABLE(SoModernRenderAction, SoDecimationTypeElement);
+  SO_ENABLE(SoModernRenderAction, SoTextureOverrideElement);
+  SO_ENABLE(SoModernRenderAction, SoWindowElement);
 }
 
 SoModernRenderAction::SoModernRenderAction(const SbViewportRegion & vp)

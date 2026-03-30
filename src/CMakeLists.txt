@@ -18,6 +18,14 @@ configure_file(setup.h.cmake.in setup.h)
 
 add_compile_options(-DHAVE_CONFIG_H -DCOIN_INTERNAL -DCOIN_DEBUG=$<CONFIG:Debug>)
 
+# Tracy profiling support (symbols resolve from host app at load time)
+if (COIN_USE_TRACY)
+  add_definitions(-DTRACY_ENABLE -DCOIN_USE_TRACY)
+  if (COIN_TRACY_INCLUDE_DIR)
+    include_directories(${COIN_TRACY_INCLUDE_DIR})
+  endif()
+endif()
+
 include_directories(BEFORE
   "${PROJECT_BINARY_DIR}/include"
   "${PROJECT_SOURCE_DIR}/include"

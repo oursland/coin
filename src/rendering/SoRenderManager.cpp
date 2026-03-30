@@ -1760,6 +1760,22 @@ SoRenderManager::getModernBackend(void) const
   return PRIVATE(this)->modernBackend;
 }
 
+uint32_t
+SoRenderManager::gpuPick(int x, int y, int pickRadius) const
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  if (!backend) return 0;
+  return backend->pick(x, y, pickRadius);
+}
+
+std::string
+SoRenderManager::resolveGpuPickIdentity(uint32_t lutIndex) const
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action) return std::string();
+  return action->getDrawList().resolvePickIdentity(lutIndex);
+}
+
 /*!
   Returns pointer to render action.
  */

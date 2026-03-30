@@ -49,6 +49,7 @@ private:
   GLuint vertexBuffer;
   GLuint indexBuffer;
   GLint  uMvpLocation;
+  GLint  uModelLocation;
   GLint  uColorLocation;
   bool   vaoInitialized;
   bool   createShaders();

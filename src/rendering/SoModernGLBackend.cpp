@@ -3,6 +3,13 @@
 #include "rendering/SoModernGLBackend.h"
 #include "rendering/SoVBO.h"
 
+// macOS legacy GL headers provide VAO functions with APPLE suffix
+#if defined(__APPLE__) && !defined(glGenVertexArrays)
+#define glGenVertexArrays    glGenVertexArraysAPPLE
+#define glBindVertexArray    glBindVertexArrayAPPLE
+#define glDeleteVertexArrays glDeleteVertexArraysAPPLE
+#endif
+
 #include <Inventor/SbBasic.h>
 #include <Inventor/C/tidbits.h>
 #include <Inventor/errors/SoDebugError.h>
@@ -172,6 +179,7 @@ SoModernGLBackend::SoModernGLBackend()
   this->vertexBuffer = 0;
   this->indexBuffer = 0;
   this->uMvpLocation = -1;
+  this->uModelLocation = -1;
   this->uColorLocation = -1;
   this->vaoInitialized = FALSE;
 }
@@ -281,9 +289,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     this->vaoInitialized = TRUE;
   }
 
-  SbMat matrix;
-  params.viewProjMatrix.getValue(matrix);
-  glUniformMatrix4fv(this->uMvpLocation, 1, GL_FALSE, &matrix[0][0]);
+  SbMat vpMat;
+  params.viewProjMatrix.getValue(vpMat);
+  glUniformMatrix4fv(this->uMvpLocation, 1, GL_FALSE, &vpMat[0][0]);
+
+  // Set identity as default model matrix
+  SbMatrix identity = SbMatrix::identity();
+  SbMat identityMat;
+  identity.getValue(identityMat);
+  glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &identityMat[0][0]);
 
   SoGLShaderProgram * currentShader = nullptr;
   GLuint currentShaderHandle = 0;
@@ -293,6 +307,13 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   for (int i = 0; i < count; ++i) {
     const SoRenderCommand & cmd = drawlist.getCommand(i);
     if (cmd.geometry.vertexCount == 0) continue;
+
+    // Upload per-command model matrix (Coin stores row-major, GL expects column-major → transpose)
+    if (fallbackProgramBound) {
+      SbMat modelMat;
+      cmd.modelMatrix.getValue(modelMat);
+      glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+    }
 
     const bool hasCustomShader =
       (cmd.shaderProgram != NULL) && (params.state != NULL);
@@ -496,22 +517,22 @@ bool
 SoModernGLBackend::createShaders()
 {
   static const char * vertexSource =
-    "#version 330 core\n"
-    "layout(location=0) in vec3 a_position;\n"
-    "uniform mat4 u_mvp;\n"
-    "out vec4 v_color;\n"
+    "#version 120\n"
+    "attribute vec3 a_position;\n"
+    "uniform mat4 u_viewProj;\n"
+    "uniform mat4 u_model;\n"
+    "varying vec4 v_color;\n"
     "uniform vec4 u_color;\n"
     "void main() {\n"
-    "  gl_Position = u_mvp * vec4(a_position, 1.0);\n"
+    "  gl_Position = u_viewProj * u_model * vec4(a_position, 1.0);\n"
     "  v_color = u_color;\n"
     "}\n";
 
   static const char * fragmentSource =
-    "#version 330 core\n"
-    "in vec4 v_color;\n"
-    "out vec4 FragColor;\n"
+    "#version 120\n"
+    "varying vec4 v_color;\n"
     "void main() {\n"
-    "  FragColor = v_color;\n"
+    "  gl_FragColor = v_color;\n"
     "}\n";
 
   GLuint vs = coin_compile_shader(GL_VERTEX_SHADER, vertexSource);
@@ -527,7 +548,8 @@ SoModernGLBackend::createShaders()
   glDeleteShader(fs);
   if (this->shaderProgram == 0) return FALSE;
 
-  this->uMvpLocation = glGetUniformLocation(this->shaderProgram, "u_mvp");
+  this->uMvpLocation = glGetUniformLocation(this->shaderProgram, "u_viewProj");
+  this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   return TRUE;
 }

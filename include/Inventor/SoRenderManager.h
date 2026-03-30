@@ -37,6 +37,9 @@
 #include <Inventor/SbVec2s.h>
 #include <Inventor/actions/SoGLRenderAction.h>
 
+#include <cstdint>
+#include <string>
+
 class SbViewportRegion;
 class SoEvent;
 class SoGLRenderAction;
@@ -184,6 +187,15 @@ public:
   /// Access the modern render backend (NULL if not initialized).
   /// Used for GPU picking via backend->pick().
   class SoRenderBackend * getModernBackend(void) const;
+
+  /// GPU pick at pixel coordinates using the modern backend's ID buffer.
+  /// Returns the pick LUT index (1-based) or 0 for no hit.
+  /// Coordinates are in OpenGL convention (origin at bottom-left).
+  uint32_t gpuPick(int x, int y, int pickRadius = 5) const;
+
+  /// Resolve a pick LUT index to a pick identity string.
+  /// Returns tab-separated "pickIdentity\tElementName" or empty string.
+  std::string resolveGpuPickIdentity(uint32_t lutIndex) const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

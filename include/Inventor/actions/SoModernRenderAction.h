@@ -8,7 +8,7 @@
 #include <Inventor/SbViewportRegion.h>
 #include <Inventor/lists/SbList.h>
 
-#include "rendering/SoModernIR.h" // internal for now
+#include <Inventor/rendering/SoModernIR.h>
 
 #include <cstddef>
 
