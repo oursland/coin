@@ -177,8 +177,10 @@ SoModernGLBackend::SoModernGLBackend()
   this->shaderProgram = 0;
   this->vao = 0;
   this->vertexBuffer = 0;
+  this->normalBuffer = 0;
   this->indexBuffer = 0;
-  this->uMvpLocation = -1;
+  this->uViewLocation = -1;
+  this->uProjLocation = -1;
   this->uModelLocation = -1;
   this->uColorLocation = -1;
   this->vaoInitialized = FALSE;
@@ -242,6 +244,10 @@ SoModernGLBackend::shutdown()
     glDeleteBuffers(1, &this->vertexBuffer);
     this->vertexBuffer = 0;
   }
+  if (this->normalBuffer) {
+    glDeleteBuffers(1, &this->normalBuffer);
+    this->normalBuffer = 0;
+  }
   if (this->indexBuffer) {
     glDeleteBuffers(1, &this->indexBuffer);
     this->indexBuffer = 0;
@@ -276,184 +282,115 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   if (this->vertexBuffer == 0) {
     glGenBuffers(1, &this->vertexBuffer);
   }
+  if (this->normalBuffer == 0) {
+    glGenBuffers(1, &this->normalBuffer);
+  }
   if (this->indexBuffer == 0) {
     glGenBuffers(1, &this->indexBuffer);
   }
 
+  // Enable depth test
+  glEnable(GL_DEPTH_TEST);
+  glDepthFunc(GL_LEQUAL);
+  glDepthMask(GL_TRUE);
+
   glUseProgram(this->shaderProgram);
   glBindVertexArray(this->vao);
-  if (!this->vaoInitialized) {
-    glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    this->vaoInitialized = TRUE;
-  }
+  this->vaoInitialized = TRUE;
 
-  SbMat vpMat;
-  params.viewProjMatrix.getValue(vpMat);
-  glUniformMatrix4fv(this->uMvpLocation, 1, GL_FALSE, &vpMat[0][0]);
+  // Upload view and projection matrices (once per frame)
+  SbMat viewMat, projMat;
+  params.viewMatrix.getValue(viewMat);
+  params.projMatrix.getValue(projMat);
+  glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+  glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
-  // Set identity as default model matrix
-  SbMatrix identity = SbMatrix::identity();
-  SbMat identityMat;
-  identity.getValue(identityMat);
-  glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &identityMat[0][0]);
+  // Cache attribute locations (once)
+  GLint posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
+  GLint normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
 
-  SoGLShaderProgram * currentShader = nullptr;
-  GLuint currentShaderHandle = 0;
-  bool fallbackProgramBound = true;
+  // Lambda to draw a single command using the fallback shader + CPU data path
+  auto drawCommand = [&](const SoRenderCommand & cmd) {
+    if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
 
-  const int count = drawlist.getNumCommands();
-  for (int i = 0; i < count; ++i) {
-    const SoRenderCommand & cmd = drawlist.getCommand(i);
-    if (cmd.geometry.vertexCount == 0) continue;
+    // Per-command model matrix
+    SbMat modelMat;
+    cmd.modelMatrix.getValue(modelMat);
+    glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
 
-    // Upload per-command model matrix (Coin stores row-major, GL expects column-major → transpose)
-    if (fallbackProgramBound) {
-      SbMat modelMat;
-      cmd.modelMatrix.getValue(modelMat);
-      glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-    }
-
-    const bool hasCustomShader =
-      (cmd.shaderProgram != NULL) && (params.state != NULL);
-
-    GLuint programHandle = this->shaderProgram;
-    if (hasCustomShader) {
-      if (fallbackProgramBound) {
-        glBindVertexArray(0);
-        fallbackProgramBound = false;
-      }
-      if (currentShader != cmd.shaderProgram) {
-        if (currentShader) currentShader->disable(params.state);
-        currentShader = cmd.shaderProgram;
-        currentShader->enable(params.state);
-        currentShaderHandle =
-          currentShader->getGLSLShaderProgramHandle(params.state);
-      }
-      programHandle = currentShaderHandle;
-    }
-    else {
-      if (currentShader) {
-        currentShader->disable(params.state);
-        currentShader = nullptr;
-      }
-      if (!fallbackProgramBound) {
-        glUseProgram(this->shaderProgram);
-        glBindVertexArray(this->vao);
-        fallbackProgramBound = true;
-      }
-      const SbVec4f & diffuse = cmd.material.diffuse;
-      glUniform4f(this->uColorLocation,
-                  diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
-    }
+    // Per-command color
+    const SbVec4f & diffuse = cmd.material.diffuse;
+    glUniform4f(this->uColorLocation,
+                diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
-    bool drawn = false;
+    GLsizei stride = static_cast<GLsizei>(
+      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
-    if (cmd.geometry.cache.vertexVbo && cmd.geometry.cache.indexVbo) {
-      const uint32_t cacheContextId =
-        cmd.geometry.cache.contextId ? cmd.geometry.cache.contextId : params.contextId;
-      cmd.geometry.cache.vertexVbo->bindBuffer(cacheContextId);
-      if (hasCustomShader && programHandle && cmd.geometry.cache.vertexLayout) {
-        std::vector<GLint> enabledLocs;
-        enableLayoutAttributes(programHandle,
-                               cmd.geometry.cache.vertexLayout,
-                               enabledLocs);
-        if (cmd.geometry.indexCount > 0) {
-          cmd.geometry.cache.indexVbo->bindBuffer(cacheContextId);
-          glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
-          glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        }
-        else {
-          glDrawArrays(prim, 0, cmd.geometry.vertexCount);
-        }
-        disableAttributes(enabledLocs);
-        drawn = true;
-      }
-      else if (!hasCustomShader) {
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-        if (cmd.geometry.indexCount > 0) {
-          cmd.geometry.cache.indexVbo->bindBuffer(cacheContextId);
-          glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
-          glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        }
-        else {
-          glDrawArrays(prim, 0, cmd.geometry.vertexCount);
-        }
-        glDisableVertexAttribArray(0);
-        drawn = true;
-      }
+    // Upload positions
+    glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+                 cmd.geometry.vertexCount * stride,
+                 cmd.geometry.positions, GL_STREAM_DRAW);
+    if (posLoc >= 0) {
+      glEnableVertexAttribArray(posLoc);
+      glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
     }
 
-    if (drawn) continue;
-
-    if (hasCustomShader && programHandle) {
-      glBindBuffer(GL_ARRAY_BUFFER, 0);
-      std::vector<GLint> enabledLocs;
-      const GLsizei vertexStride = static_cast<GLsizei>(
-        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
-      enableCPUAttribute(programHandle, "a_position", 3,
-                         cmd.geometry.positions,
-                         vertexStride, enabledLocs);
-      if (cmd.geometry.normals) {
-        enableCPUAttribute(programHandle, "a_normal", 3,
-                           cmd.geometry.normals,
-                           vertexStride, enabledLocs);
-      }
-      if (cmd.geometry.texcoords) {
-        const GLsizei texStride = static_cast<GLsizei>(
-          cmd.geometry.texcoordStride ? cmd.geometry.texcoordStride : sizeof(float) * 4);
-        enableCPUAttribute(programHandle, "a_texCoord0", 4,
-                           cmd.geometry.texcoords,
-                           texStride, enabledLocs);
-      }
-      if (cmd.geometry.colors) {
-        enableCPUAttribute(programHandle, "a_color0", 4,
-                           cmd.geometry.colors,
-                           static_cast<GLsizei>(sizeof(float) * 4), enabledLocs);
-      }
-
-      if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                     cmd.geometry.indexCount * sizeof(uint32_t),
-                     cmd.geometry.indices,
-                     GL_STREAM_DRAW);
-        glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-      }
-      else {
-        glDrawArrays(prim, 0, cmd.geometry.vertexCount);
-      }
-      disableAttributes(enabledLocs);
-      glBindBuffer(GL_ARRAY_BUFFER, 0);
-    }
-    else if (!hasCustomShader) {
-      if (!cmd.geometry.positions) continue;
-      glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
+    // Upload normals
+    if (cmd.geometry.normals && normLoc >= 0) {
+      glBindBuffer(GL_ARRAY_BUFFER, this->normalBuffer);
       glBufferData(GL_ARRAY_BUFFER,
-                   cmd.geometry.vertexCount * 3 * sizeof(float),
-                   cmd.geometry.positions,
-                   GL_STREAM_DRAW);
-
-      if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                     cmd.geometry.indexCount * sizeof(uint32_t),
-                     cmd.geometry.indices,
-                     GL_STREAM_DRAW);
-        glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
-      }
-      else {
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        glDrawArrays(prim, 0, cmd.geometry.vertexCount);
-      }
+                   cmd.geometry.vertexCount * stride,
+                   cmd.geometry.normals, GL_STREAM_DRAW);
+      glEnableVertexAttribArray(normLoc);
+      glVertexAttribPointer(normLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
     }
+    else if (normLoc >= 0) {
+      glDisableVertexAttribArray(normLoc);
+      glVertexAttrib3f(normLoc, 0.0f, 0.0f, 1.0f);
+    }
+
+    // Draw
+    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                   cmd.geometry.indexCount * sizeof(uint32_t),
+                   cmd.geometry.indices, GL_STREAM_DRAW);
+      glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
+    }
+    else {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+      glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+    }
+
+    if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
+    if (normLoc >= 0) glDisableVertexAttribArray(normLoc);
+  };
+
+  const int count = drawlist.getNumCommands();
+
+  // Pass 1: Opaque — depth write on, no blending
+  glDepthMask(GL_TRUE);
+  glDisable(GL_BLEND);
+  for (int i = 0; i < count; ++i) {
+    const SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (cmd.pass != SO_RENDERPASS_OPAQUE) continue;
+    drawCommand(cmd);
   }
 
-  if (currentShader) currentShader->disable(params.state);
+  // Pass 2: Transparent — depth write off, alpha blending
+  glDepthMask(GL_FALSE);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  for (int i = 0; i < count; ++i) {
+    const SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (cmd.pass == SO_RENDERPASS_OPAQUE) continue;
+    drawCommand(cmd);
+  }
+
+  glDepthMask(GL_TRUE);
+  glDisable(GL_BLEND);
   glBindVertexArray(0);
   glUseProgram(0);
 
@@ -516,23 +453,62 @@ SoModernGLBackend::logFrameStats(const SoDrawList & drawlist,
 bool
 SoModernGLBackend::createShaders()
 {
+  // Blinn-Phong shader — view-space headlight
   static const char * vertexSource =
     "#version 120\n"
     "attribute vec3 a_position;\n"
-    "uniform mat4 u_viewProj;\n"
+    "attribute vec3 a_normal;\n"
+    "uniform mat4 u_proj;\n"
+    "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
-    "varying vec4 v_color;\n"
     "uniform vec4 u_color;\n"
+    "varying vec3 v_eyePos;\n"
+    "varying vec3 v_eyeNormal;\n"
+    "varying vec4 v_color;\n"
+    // Compute inverse of 3x3 matrix (for normal transform)
+    "mat3 inverse3(mat3 m) {\n"
+    "  float det = dot(m[0], cross(m[1], m[2]));\n"
+    "  if (abs(det) < 1e-10) return mat3(1.0);\n"
+    "  float invDet = 1.0 / det;\n"
+    "  return mat3(\n"
+    "    cross(m[1], m[2]) * invDet,\n"
+    "    cross(m[2], m[0]) * invDet,\n"
+    "    cross(m[0], m[1]) * invDet\n"
+    "  );\n"
+    "}\n"
     "void main() {\n"
-    "  gl_Position = u_viewProj * u_model * vec4(a_position, 1.0);\n"
+    "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
+    "  vec4 eyePos = u_view * worldPos;\n"
+    "  v_eyePos = eyePos.xyz;\n"
+    // Normal matrix = transpose(inverse(mat3(modelView)))
+    // This is correct regardless of matrix convention issues
+    "  mat3 mv3 = mat3(u_view) * mat3(u_model);\n"
+    "  mat3 normalMatrix = transpose(inverse3(mv3));\n"
+    "  v_eyeNormal = normalMatrix * a_normal;\n"
+    "  gl_Position = u_proj * eyePos;\n"
     "  v_color = u_color;\n"
     "}\n";
 
   static const char * fragmentSource =
     "#version 120\n"
+    "varying vec3 v_eyePos;\n"
+    "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
     "void main() {\n"
-    "  gl_FragColor = v_color;\n"
+    "  vec3 N = normalize(v_eyeNormal);\n"
+    // Two-sided lighting: flip normal to face the camera
+    "  if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) N = -N;\n"
+    // Directional headlight fixed in eye space: always along +Z (toward viewer)
+    "  vec3 L = vec3(0.0, 0.0, 1.0);\n"
+    "  float NdotL = dot(N, L);\n"  // always >= 0 after flip
+    "  vec3 V = normalize(-v_eyePos);\n"
+    "  vec3 H = normalize(L + V);\n"
+    "  float NdotH = max(dot(N, H), 0.0);\n"
+    "  float spec = pow(NdotH, 64.0);\n"
+    "  vec3 ambient = 0.25 * v_color.rgb;\n"
+    "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"
+    "  vec3 specular = 0.12 * spec * vec3(1.0);\n"
+    "  gl_FragColor = vec4(ambient + diffuse + specular, v_color.a);\n"
     "}\n";
 
   GLuint vs = coin_compile_shader(GL_VERTEX_SHADER, vertexSource);
@@ -548,7 +524,8 @@ SoModernGLBackend::createShaders()
   glDeleteShader(fs);
   if (this->shaderProgram == 0) return FALSE;
 
-  this->uMvpLocation = glGetUniformLocation(this->shaderProgram, "u_viewProj");
+  this->uViewLocation = glGetUniformLocation(this->shaderProgram, "u_view");
+  this->uProjLocation = glGetUniformLocation(this->shaderProgram, "u_proj");
   this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   return TRUE;
