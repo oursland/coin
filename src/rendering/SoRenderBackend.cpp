@@ -29,6 +29,13 @@ SoRenderBackend::resizeTarget(const SoRenderTargetInfo & info)
   (void) info;
 }
 
+uint32_t
+SoRenderBackend::pick(int x, int y, int pickRadius) const
+{
+  (void) x; (void) y; (void) pickRadius;
+  return 0; // Default: no pick support
+}
+
 SbBool
 SoRenderBackend::isInitialized() const
 {

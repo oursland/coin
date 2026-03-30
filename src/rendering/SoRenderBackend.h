@@ -206,6 +206,20 @@ public:
                         const SoRenderParams & params) = 0;
   virtual void resizeTarget(const SoRenderTargetInfo & info);
 
+  /*!
+    \brief GPU pick at pixel coordinates using the ID buffer.
+
+    Returns the pick LUT index (1-based) of the nearest visible element,
+    or 0 for background/no hit. The draw list's resolvePickIdentity()
+    can then map this to an application-level name.
+
+    Backends that support GPU picking implement this; others return 0.
+    \param x  Pixel X (left = 0)
+    \param y  Pixel Y (bottom = 0, OpenGL convention)
+    \param pickRadius  Half-size of the pick region (default 5 = 11x11)
+  */
+  virtual uint32_t pick(int x, int y, int pickRadius = 5) const;
+
   SbBool isInitialized() const;
 
 protected:
