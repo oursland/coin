@@ -318,6 +318,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // Lambda to draw a single command using the fallback shader + CPU data path
   auto drawCommand = [&](const SoRenderCommand & cmd) {
     if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
+    // Guard against stale pointers during scene graph changes
+    if (cmd.geometry.vertexCount > 10000000) return;  // sanity limit
+    if (cmd.geometry.indexCount > 0 && !cmd.geometry.indices) return;
 
     // Per-command model matrix
     SbMat modelMat;
@@ -540,6 +543,31 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
       lastPickLUTSize = lut.size();
       pickBufferDirty = true;
+
+      // Debug: count commands with/without ID color VBOs by topology
+      int faceWithVbo = 0, faceNoVbo = 0;
+      int edgeWithVbo = 0, edgeNoVbo = 0;
+      int pointWithVbo = 0, pointNoVbo = 0;
+      for (int i = 0; i < count; ++i) {
+        const auto & c = drawlist.getCommand(i);
+        bool hasVbo = i < static_cast<int>(pickBuffer->getIdColorVBOCount())
+              && pickBuffer->hasIdColorVBO(i);
+        if (c.geometry.topology == SO_TOPOLOGY_TRIANGLES) {
+          if (hasVbo) faceWithVbo++; else faceNoVbo++;
+        }
+        else if (c.geometry.topology == SO_TOPOLOGY_LINES) {
+          if (hasVbo) edgeWithVbo++; else edgeNoVbo++;
+        }
+        else if (c.geometry.topology == SO_TOPOLOGY_POINTS) {
+          if (hasVbo) pointWithVbo++; else pointNoVbo++;
+        }
+      }
+      std::fprintf(stderr,
+        "ModernGLBackend: LUT=%zu cmds=%d faces=%d/%d edges=%d/%d points=%d/%d (with/noVBO)\n",
+        lut.size(), count,
+        faceWithVbo, faceNoVbo,
+        edgeWithVbo, edgeNoVbo,
+        pointWithVbo, pointNoVbo);
     }
 
     // Only re-render ID buffer when camera moved or LUT changed
@@ -549,6 +577,16 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       params.projMatrix.getValue(projMat);
       pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist);
       pickBufferDirty = false;
+    }
+
+    // Debug: visualize the ID buffer when FREECAD_SHOW_ID_BUFFER=1
+    static int showIdBuffer = -1;
+    if (showIdBuffer < 0) {
+      const char * env = coin_getenv("FREECAD_SHOW_ID_BUFFER");
+      showIdBuffer = (env && env[0] == '1') ? 1 : 0;
+    }
+    if (showIdBuffer) {
+      pickBuffer->blitToScreen(vpSize[0], vpSize[1]);
     }
   }
 

@@ -64,6 +64,10 @@ public:
   uint32_t pick(int x, int y, int pickRadius = 5) const;
 
   SbBool isInitialized() const { return shaderInitialized; }
+  size_t getIdColorVBOCount() const { return idColorVBOs.size(); }
+  bool hasIdColorVBO(int ci) const {
+    return ci >= 0 && ci < static_cast<int>(idColorVBOs.size()) && idColorVBOs[ci] != 0;
+  }
 
   /// Debug: blit the ID buffer to the current framebuffer.
   void blitToScreen(int screenWidth, int screenHeight) const;

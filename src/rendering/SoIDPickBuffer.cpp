@@ -56,21 +56,32 @@ void main() {
 // Encode / Decode
 // -----------------------------------------------------------------------
 
+// Encode: bits 31-30 = element type (0=face, 1=edge, 2=vertex, 3=reserved)
+//         bits 29-0  = LUT index (1-based, max ~1 billion)
+static void encodeIdWithType(uint32_t lutId, uint8_t elementType, uint8_t out[4])
+{
+  uint32_t encoded = (static_cast<uint32_t>(elementType & 0x3) << 30) | (lutId & 0x3FFFFFFF);
+  out[0] = static_cast<uint8_t>((encoded >> 24) & 0xFF);
+  out[1] = static_cast<uint8_t>((encoded >> 16) & 0xFF);
+  out[2] = static_cast<uint8_t>((encoded >> 8) & 0xFF);
+  out[3] = static_cast<uint8_t>(encoded & 0xFF);
+}
+
+// Legacy encode without type (for backward compat)
 static void encodeIdToRGBA(uint32_t id, uint8_t out[4])
 {
-  out[0] = static_cast<uint8_t>((id >> 24) & 0xFF);
-  out[1] = static_cast<uint8_t>((id >> 16) & 0xFF);
-  out[2] = static_cast<uint8_t>((id >> 8) & 0xFF);
-  out[3] = static_cast<uint8_t>(id & 0xFF);
+  encodeIdWithType(id, 0, out);
 }
 
 uint32_t
 SoIDPickBuffer::decodeId(const uint8_t rgba[4])
 {
-  return (static_cast<uint32_t>(rgba[0]) << 24) |
-         (static_cast<uint32_t>(rgba[1]) << 16) |
-         (static_cast<uint32_t>(rgba[2]) << 8)  |
-         static_cast<uint32_t>(rgba[3]);
+  uint32_t raw = (static_cast<uint32_t>(rgba[0]) << 24) |
+                 (static_cast<uint32_t>(rgba[1]) << 16) |
+                 (static_cast<uint32_t>(rgba[2]) << 8)  |
+                 static_cast<uint32_t>(rgba[3]);
+  // Strip type bits, return LUT index
+  return raw & 0x3FFFFFFF;
 }
 
 // -----------------------------------------------------------------------
@@ -238,7 +249,11 @@ SoIDPickBuffer::buildIdColorVBOs(const SoDrawList & drawlist, uint32_t /*context
 
     for (const auto & [lutId, le] : entries) {
       uint8_t rgba[4];
-      encodeIdToRGBA(lutId, rgba);
+      // Encode element type in upper 2 bits: 0=face, 1=edge, 2=vertex
+      uint8_t typeCode = 0;
+      if (le->elementType == SO_PICK_EDGE) typeCode = 1;
+      else if (le->elementType == SO_PICK_VERTEX) typeCode = 2;
+      encodeIdWithType(lutId, typeCode, rgba);
 
       if (le->eboCount > 0 && cmd.geometry.indices) {
         // Per-face/edge: color vertices referenced by this element's index range
@@ -305,42 +320,15 @@ SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
 
   renderIdPass(viewMatrix, projMatrix, drawlist);
 
-  // PBO async readback
+  // Synchronous readback every frame — read directly from fbo
+  // Note: renderIdPass leaves fbo bound, so we're already reading from it.
+  // But bind explicitly to be safe.
   size_t numPixels = static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight);
   pboSize = numPixels * 4;
+  cachedColor.resize(pboSize);
 
-  if (!pboInitialized) {
-    glGenBuffers(2, pbo);
-    for (int i = 0; i < 2; i++) {
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[i]);
-      glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(pboSize),
-                   NULL, GL_STREAM_READ);
-    }
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    pboInitialized = TRUE;
-    // First frame: synchronous readback
-    cachedColor.resize(pboSize);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, cachedColor.data());
-  }
-  else {
-    // Read previous frame's PBO (DMA already complete)
-    int readPbo = 1 - pboIndex;
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[readPbo]);
-    const uint8_t * ptr = static_cast<const uint8_t *>(
-        glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY));
-    if (ptr) {
-      cachedColor.resize(pboSize);
-      std::memcpy(cachedColor.data(), ptr, pboSize);
-      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-    }
-    // Start async DMA for current frame
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[pboIndex]);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    pboIndex = 1 - pboIndex;
-  }
+  // Readback is now done inside renderIdPass after edge pass.
+  // (moved there to debug edge visibility in readback)
 
   glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
 }
@@ -430,24 +418,47 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (idColorLoc >= 0) glDisableVertexAttribArray(idColorLoc);
   };
 
-  // Pass 1: Triangles with polygon offset
-  glEnable(GL_POLYGON_OFFSET_FILL);
-  glPolygonOffset(1.0f, 1.0f);
+  // Pass 1: Triangles — normal depth test
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
         cmd.geometry.topology != SO_TOPOLOGY_TRIANGLE_STRIP) continue;
     drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
-  glDisable(GL_POLYGON_OFFSET_FILL);
 
-  // Pass 2: Lines
-  for (int ci = 0; ci < numCmds; ci++) {
-    const SoRenderCommand & cmd = drawlist.getCommand(ci);
-    if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
-        cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
-    glLineWidth(std::max(cmd.state.raster.lineWidth, 5.0f));
-    drawIdCmd(cmd, ci, GL_LINES);
+  // Pass 2: Lines — depth ALWAYS, no depth write
+  glDepthFunc(GL_ALWAYS);
+  glDepthMask(GL_FALSE);
+  {
+    int edgeDrawn = 0, edgeSkipped = 0;
+    for (int ci = 0; ci < numCmds; ci++) {
+      const SoRenderCommand & cmd = drawlist.getCommand(ci);
+      if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
+          cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
+      if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) {
+        edgeSkipped++;
+        continue;
+      }
+      glLineWidth(std::max(cmd.state.raster.lineWidth, 7.0f));
+      drawIdCmd(cmd, ci, GL_LINES);
+      edgeDrawn++;
+    }
+    static int edgeLogCount = 0;
+    if (edgeLogCount < 3) {
+      std::fprintf(stderr, "IDPickBuffer: edge pass drawn=%d skipped=%d total=%d\n",
+                   edgeDrawn, edgeSkipped, numCmds);
+      edgeLogCount++;
+    }
+  }
+  glDepthMask(GL_TRUE);
+  glDepthFunc(GL_LESS);
+
+  // Readback HERE — right after edge pass, FBO still bound with edges
+  {
+    size_t numPx = static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight);
+    pboSize = numPx * 4;
+    cachedColor.resize(pboSize);
+    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, cachedColor.data());
   }
 
   // Pass 3: Points
@@ -485,11 +496,58 @@ SoIDPickBuffer::pick(int x, int y, int pickRadius) const
   int y1 = std::min(fbHeight, y0 + side);
   if (x1 <= x0 || y1 <= y0) return 0;
 
-  // Center-priority: prefer pixel closest to cursor
-  uint32_t bestId = 0;
-  float bestDistSq = static_cast<float>(pickRadius * pickRadius + 1);
+  // Center-priority pick.
   float cx = static_cast<float>(x);
   float cy = static_cast<float>(y);
+
+  // Debug: log center pixel and count unique IDs in region
+  {
+    uint32_t centerId = 0;
+    size_t cIdx = static_cast<size_t>(y) * static_cast<size_t>(fbWidth)
+                + static_cast<size_t>(x);
+    if (cIdx * 4 + 3 < cachedColor.size()) {
+      centerId = decodeId(&cachedColor[cIdx * 4]);
+    }
+    // Count unique IDs in pick region
+    int uniqueCount = 0;
+    int zeroCount = 0;
+    uint32_t ids[4] = {0, 0, 0, 0};  // track up to 4 unique
+    for (int py = y0; py < y1; py++) {
+      for (int px = x0; px < x1; px++) {
+        size_t idx = static_cast<size_t>(py) * static_cast<size_t>(fbWidth)
+                   + static_cast<size_t>(px);
+        uint32_t id = decodeId(&cachedColor[idx * 4]);
+        if (id == 0) { zeroCount++; continue; }
+        bool found = false;
+        for (int k = 0; k < uniqueCount && k < 4; k++) {
+          if (ids[k] == id) { found = true; break; }
+        }
+        if (!found && uniqueCount < 4) {
+          ids[uniqueCount++] = id;
+        }
+      }
+    }
+    // Decode type from center pixel raw value
+    uint32_t rawCenter = 0;
+    {
+      size_t ci2 = static_cast<size_t>(y) * static_cast<size_t>(fbWidth)
+                  + static_cast<size_t>(x);
+      if (ci2 * 4 + 3 < cachedColor.size()) {
+        rawCenter = (static_cast<uint32_t>(cachedColor[ci2*4]) << 24) |
+                    (static_cast<uint32_t>(cachedColor[ci2*4+1]) << 16) |
+                    (static_cast<uint32_t>(cachedColor[ci2*4+2]) << 8)  |
+                    static_cast<uint32_t>(cachedColor[ci2*4+3]);
+      }
+    }
+    int centerType = (rawCenter >> 30) & 0x3;
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "raw=0x%08x type=%d id=%u unique=%d zero=%d",
+                  rawCenter, centerType, centerId, uniqueCount, zeroCount);
+    ZoneText(buf, std::strlen(buf));
+  }
+
+  uint32_t bestId = 0;
+  float bestDistSq = static_cast<float>(pickRadius * pickRadius + 1);
 
   for (int py = y0; py < y1; py++) {
     for (int px = x0; px < x1; px++) {
@@ -521,34 +579,18 @@ SoIDPickBuffer::blitToScreen(int screenWidth, int screenHeight) const
 {
   if (!fbo || !colorTex) return;
 
-  glDisable(GL_DEPTH_TEST);
-  glDisable(GL_BLEND);
+  // Use glBlitFramebuffer for compatibility (no legacy GL needed)
+  GLint prevReadFbo = 0, prevDrawFbo = 0;
+  glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFbo);
+  glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFbo);
 
-  glEnable(GL_TEXTURE_2D);
-  glBindTexture(GL_TEXTURE_2D, colorTex);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(prevDrawFbo));
 
-  glMatrixMode(GL_PROJECTION);
-  glPushMatrix();
-  glLoadIdentity();
-  glOrtho(0, screenWidth, 0, screenHeight, -1, 1);
+  glBlitFramebuffer(
+    0, 0, fbWidth, fbHeight,
+    0, 0, screenWidth, screenHeight,
+    GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-  glMatrixMode(GL_MODELVIEW);
-  glPushMatrix();
-  glLoadIdentity();
-
-  glUseProgram(0);
-  glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-  glBegin(GL_QUADS);
-  glTexCoord2f(0.0f, 0.0f); glVertex2f(0.0f, 0.0f);
-  glTexCoord2f(1.0f, 0.0f); glVertex2f((float)screenWidth, 0.0f);
-  glTexCoord2f(1.0f, 1.0f); glVertex2f((float)screenWidth, (float)screenHeight);
-  glTexCoord2f(0.0f, 1.0f); glVertex2f(0.0f, (float)screenHeight);
-  glEnd();
-
-  glMatrixMode(GL_MODELVIEW);
-  glPopMatrix();
-  glMatrixMode(GL_PROJECTION);
-  glPopMatrix();
-
-  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevReadFbo));
 }
