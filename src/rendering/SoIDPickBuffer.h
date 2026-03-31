@@ -10,6 +10,14 @@
 #include <cstdint>
 #include <vector>
 
+/// Per-command cached VBO info passed from the visual pass backend
+/// to the ID pick buffer, avoiding redundant geometry uploads.
+struct SoIDPassVBOInfo {
+  uint32_t posVBO;        ///< GL buffer name for positions (0 = not cached)
+  uint32_t idxVBO;        ///< GL buffer name for indices (0 = not cached)
+  uint32_t vertexStride;  ///< Stride used when VBO was uploaded
+};
+
 /*!
   \class SoIDPickBuffer
   \brief Off-screen FBO for GPU-based ID picking.
@@ -56,8 +64,12 @@ public:
   /// @param viewMatrix   Column-major 4x4 view matrix
   /// @param projMatrix   Column-major 4x4 projection matrix
   /// @param drawlist     The draw list with commands (for VAO/transform access)
+  /// @param vboCache     Optional per-command cached VBOs from the visual pass.
+  ///                     When provided, the ID pass binds these instead of
+  ///                     re-uploading positions/indices. Size must be >= numCommands.
   void render(const float * viewMatrix, const float * projMatrix,
-              const SoDrawList & drawlist);
+              const SoDrawList & drawlist,
+              const SoIDPassVBOInfo * vboCache = nullptr, int vboCacheCount = 0);
 
   /// Pick at pixel coordinates. Returns pick LUT index (1-based), or 0.
   /// Reads from CPU cache — no GL calls, safe from any thread.
@@ -85,7 +97,8 @@ public:
 
 private:
   void renderIdPass(const float * viewMatrix, const float * projMatrix,
-                    const SoDrawList & drawlist);
+                    const SoDrawList & drawlist,
+                    const SoIDPassVBOInfo * vboCache, int vboCacheCount);
 
   // GL resources
   uint32_t fbo = 0;

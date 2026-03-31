@@ -310,7 +310,8 @@ SoIDPickBuffer::buildIdColorVBOs(const SoDrawList & drawlist, uint32_t /*context
 
 void
 SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
-                       const SoDrawList & drawlist)
+                       const SoDrawList & drawlist,
+                       const SoIDPassVBOInfo * vboCache, int vboCacheCount)
 {
   ZoneScopedN("IDPickBuffer::render");
   if (!fbo || !shaderInitialized) return;
@@ -318,7 +319,7 @@ SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
   GLint prevFbo = 0;
   glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
 
-  renderIdPass(viewMatrix, projMatrix, drawlist);
+  renderIdPass(viewMatrix, projMatrix, drawlist, vboCache, vboCacheCount);
 
   // PBO async readback with glFinish to ensure edge pass completes
   size_t numPixels = static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight);
@@ -372,7 +373,8 @@ SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
 
 void
 SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
-                             const SoDrawList & drawlist)
+                             const SoDrawList & drawlist,
+                             const SoIDPassVBOInfo * vboCache, int vboCacheCount)
 {
   ZoneScopedN("IDPickBuffer::renderIdPass");
 
@@ -403,15 +405,14 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
 
   int numCmds = drawlist.getNumCommands();
 
-  // Ensure temp VBOs exist
+  // Temp VBOs as fallback when no cached VBOs available
   if (tempPosVBO == 0) glGenBuffers(1, &tempPosVBO);
   if (tempIdxVBO == 0) glGenBuffers(1, &tempIdxVBO);
 
-  // Get attribute locations
   GLint posLoc = glGetAttribLocation(shaderProgram, "aPos");
   GLint idColorLoc = glGetAttribLocation(shaderProgram, "aIdColor");
 
-  // Helper: draw one command with its ID color VBO
+  // Helper: draw one command using cached VBOs when available
   auto drawIdCmd = [&](const SoRenderCommand & cmd, int ci, GLenum prim) {
     if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) return;
     if (!cmd.geometry.positions || cmd.geometry.vertexCount == 0) return;
@@ -420,16 +421,29 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     cmd.modelMatrix.getValue(modelMat);
     glUniformMatrix4fv(uIdModel, 1, GL_FALSE, &modelMat[0][0]);
 
-    GLsizei stride = static_cast<GLsizei>(
-      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+    // Check if we have a cached VBO from the visual pass
+    bool useCached = (vboCache && ci < vboCacheCount && vboCache[ci].posVBO != 0);
 
-    // Upload positions to temp VBO
-    glBindBuffer(GL_ARRAY_BUFFER, tempPosVBO);
-    glBufferData(GL_ARRAY_BUFFER, cmd.geometry.vertexCount * stride,
-                 cmd.geometry.positions, GL_STREAM_DRAW);
-    if (posLoc >= 0) {
-      glEnableVertexAttribArray(posLoc);
-      glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, NULL);
+    if (useCached) {
+      // Bind cached position VBO — no upload needed
+      GLsizei stride = static_cast<GLsizei>(vboCache[ci].vertexStride);
+      if (posLoc >= 0) {
+        glBindBuffer(GL_ARRAY_BUFFER, vboCache[ci].posVBO);
+        glEnableVertexAttribArray(posLoc);
+        glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, NULL);
+      }
+    }
+    else {
+      // Fallback: upload positions to temp VBO
+      GLsizei stride = static_cast<GLsizei>(
+        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+      glBindBuffer(GL_ARRAY_BUFFER, tempPosVBO);
+      glBufferData(GL_ARRAY_BUFFER, cmd.geometry.vertexCount * stride,
+                   cmd.geometry.positions, GL_STREAM_DRAW);
+      if (posLoc >= 0) {
+        glEnableVertexAttribArray(posLoc);
+        glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, NULL);
+      }
     }
 
     // Bind per-vertex ID color
@@ -440,10 +454,16 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     }
 
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tempIdxVBO);
-      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                   cmd.geometry.indexCount * sizeof(uint32_t),
-                   cmd.geometry.indices, GL_STREAM_DRAW);
+      if (useCached && vboCache[ci].idxVBO != 0) {
+        // Bind cached index VBO — no upload needed
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboCache[ci].idxVBO);
+      }
+      else {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tempIdxVBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                     cmd.geometry.indexCount * sizeof(uint32_t),
+                     cmd.geometry.indices, GL_STREAM_DRAW);
+      }
       glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, NULL);
     }
     else {

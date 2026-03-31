@@ -218,6 +218,11 @@ public:
   /// Larger points make vertices easier to select. Default 7.0.
   void setGpuPickPointSize(float size);
   float getGpuPickPointSize() const;
+
+  /// Force the modern renderer to re-traverse the scene graph on the next frame.
+  /// Call this when scene state changes outside the normal sensor path
+  /// (e.g., selection highlight changes applied directly to the draw list).
+  void invalidateDrawList();
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

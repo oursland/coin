@@ -9,14 +9,46 @@
 #include <Inventor/system/gl.h>
 
 #include <memory>
+#include <unordered_map>
+#include <vector>
+
+/// Per-command GPU resource cache entry.
+/// Caches VBOs and VAOs for a single draw command, keyed by CPU data pointer.
+struct CachedGPUCommand {
+  GLuint posVBO = 0;
+  GLuint normVBO = 0;
+  GLuint idxVBO = 0;
+  GLuint vao = 0;       // visual pass VAO (pos + norm + idx)
+  GLuint idVAO = 0;     // ID pass VAO (pos + idColor + idx)
+
+  // Cache invalidation keys (CPU pointer addresses + counts)
+  const float *    posKey = nullptr;
+  const float *    normKey = nullptr;
+  const uint32_t * idxKey = nullptr;
+  uint32_t vertexCount = 0;
+  uint32_t indexCount = 0;
+  uint32_t vertexStride = 0;
+
+  // ID color VBO that was bound when idVAO was last built
+  GLuint boundIdColorVBO = 0;
+
+  int lastUsedFrame = 0;
+
+  bool isGeometryValid(const float * pos, const float * norm,
+                       const uint32_t * idx, uint32_t vCount,
+                       uint32_t iCount, uint32_t vStride) const {
+    return posVBO != 0 && pos == posKey && norm == normKey
+        && idx == idxKey && vCount == vertexCount
+        && iCount == indexCount && vStride == vertexStride;
+  }
+};
 
 /*!
   \class SoModernGLBackend
   \brief OpenGL backend that renders IR draw lists with GPU picking.
 
   Implements the SoRenderBackend interface with real GPU rendering:
-  - Geometry rendering via VBO/VAO or CPU-uploaded vertex data
-  - Custom shader support via SoGLShaderProgram
+  - Per-command VBO/VAO caching (GL_STATIC_DRAW, only re-upload on change)
   - GPU ID buffer picking via SoIDPickBuffer (O(1) per pick)
   - Pick LUT integration for per-face element identification
 */
@@ -44,23 +76,50 @@ public:
   /// Access the pick buffer for debug visualization.
   SoIDPickBuffer * getPickBuffer() { return pickBuffer.get(); }
 
+  /// Get cached GPU entry for a command index (for ID pass sharing).
+  const CachedGPUCommand * getCachedCommand(int cmdIndex) const;
+
 private:
   void logFrameStats(const SoDrawList & drawlist,
                      const SoRenderParams & params) const;
+  bool createShaders();
+
+  CachedGPUCommand & getOrCreateCache(const float * posPtr, const uint32_t * idxPtr);
+  void uploadGeometry(CachedGPUCommand & entry, const SoRenderCommand & cmd);
+  void setupVisualVAO(CachedGPUCommand & entry, const SoRenderCommand & cmd);
+  void gcStaleEntries(int currentFrame);
+  void destroyCacheEntry(CachedGPUCommand & entry);
 
   SoRenderBackendInitParams storedparams;
-  GLuint shaderProgram;
-  GLuint vao;
-  GLuint vertexBuffer;
-  GLuint normalBuffer;
-  GLuint indexBuffer;
-  GLint  uViewLocation;
-  GLint  uProjLocation;
-  GLint  uModelLocation;
-  GLint  uColorLocation;
-  GLint  uEmissiveLocation;
-  bool   vaoInitialized;
-  bool   createShaders();
+  GLuint shaderProgram = 0;
+  GLint  uViewLocation = -1;
+  GLint  uProjLocation = -1;
+  GLint  uModelLocation = -1;
+  GLint  uColorLocation = -1;
+  GLint  uEmissiveLocation = -1;
+
+  // Cached attribute locations
+  GLint posLoc = -1;
+  GLint normLoc = -1;
+
+  // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
+  // Two commands may share the same coordinate data but have different
+  // index buffers (e.g., face set and edge set on same shape).
+  struct CacheKey {
+    const float * pos;
+    const uint32_t * idx;
+    bool operator==(const CacheKey & o) const { return pos == o.pos && idx == o.idx; }
+  };
+  struct CacheKeyHash {
+    size_t operator()(const CacheKey & k) const {
+      auto h1 = std::hash<const void *>()(k.pos);
+      auto h2 = std::hash<const void *>()(k.idx);
+      return h1 ^ (h2 << 1);
+    }
+  };
+  std::vector<CachedGPUCommand> gpuCache;
+  std::unordered_map<CacheKey, int, CacheKeyHash> ptrToCacheIndex;
+  int currentFrame = 0;
 
   // GPU picking
   std::unique_ptr<SoIDPickBuffer> pickBuffer;

@@ -81,82 +81,6 @@ coin_link_program(GLuint vs, GLuint fs)
 }
 
 namespace {
-const char * shaderAttrNames[] = {
-  "a_position",
-  "a_normal",
-  "a_tangent",
-  "a_bitangent",
-  "a_color0",
-  "a_color1",
-  "a_color2",
-  "a_color3",
-  "a_indices",
-  "a_weights",
-  "a_texCoord0",
-  "a_texCoord1",
-  "a_texCoord2",
-  "a_texCoord3",
-  "a_texCoord4",
-  "a_texCoord5",
-  "a_texCoord6",
-  "a_texCoord7"
-};
-
-const GLenum attribTypeToGL[SoAttribType::Count] = {
-  GL_UNSIGNED_BYTE,
-  GL_SHORT,
-  GL_HALF_FLOAT,
-  GL_FLOAT
-};
-
-inline void disableAttributes(const std::vector<GLint> & attrs) {
-  for (GLint loc : attrs) {
-    glDisableVertexAttribArray(loc);
-  }
-}
-
-inline void enableLayoutAttributes(GLuint program,
-                                   const SoVertexLayout * layout,
-                                   std::vector<GLint> & enabledLocations) {
-  if (!program || !layout) return;
-  const GLsizei stride = static_cast<GLsizei>(layout->getStride());
-  for (int i = 0; i < SoAttrib::Count; ++i) {
-    if (!layout->has(static_cast<SoAttrib::Enum>(i))) continue;
-    const char * name = shaderAttrNames[i];
-    if (name == nullptr) continue;
-    GLint loc = glGetAttribLocation(program, name);
-    if (loc < 0) continue;
-    uint8_t num;
-    SoAttribType::Enum type;
-    bool normalized;
-    bool asInt;
-    layout->decode(static_cast<SoAttrib::Enum>(i), num, type, normalized, asInt);
-    const GLenum gltype = attribTypeToGL[type];
-    glEnableVertexAttribArray(loc);
-    enabledLocations.push_back(loc);
-    glVertexAttribPointer(loc,
-                          num,
-                          gltype,
-                          normalized,
-                          stride,
-                          reinterpret_cast<const void *>(
-                            static_cast<uintptr_t>(layout->getOffset(static_cast<SoAttrib::Enum>(i)))));
-  }
-}
-
-inline void enableCPUAttribute(GLuint program,
-                               const char * name,
-                               GLint components,
-                               const void * data,
-                               GLsizei stride,
-                               std::vector<GLint> & enabledLocations) {
-  if (!program || !name || !data) return;
-  GLint loc = glGetAttribLocation(program, name);
-  if (loc < 0) return;
-  glEnableVertexAttribArray(loc);
-  enabledLocations.push_back(loc);
-  glVertexAttribPointer(loc, components, GL_FLOAT, GL_FALSE, stride, data);
-}
 
 inline GLenum topologyToGL(SoPrimitiveTopology topology) {
   switch (topology) {
@@ -171,20 +95,13 @@ inline GLenum topologyToGL(SoPrimitiveTopology topology) {
 
 } // namespace
 
+// -----------------------------------------------------------------------
+// Constructor / Destructor
+// -----------------------------------------------------------------------
+
 SoModernGLBackend::SoModernGLBackend()
 {
   std::memset(&this->storedparams, 0, sizeof(SoRenderBackendInitParams));
-  this->shaderProgram = 0;
-  this->vao = 0;
-  this->vertexBuffer = 0;
-  this->normalBuffer = 0;
-  this->indexBuffer = 0;
-  this->uViewLocation = -1;
-  this->uProjLocation = -1;
-  this->uModelLocation = -1;
-  this->uColorLocation = -1;
-  this->uEmissiveLocation = -1;
-  this->vaoInitialized = FALSE;
 }
 
 SoModernGLBackend::~SoModernGLBackend()
@@ -199,6 +116,10 @@ SoModernGLBackend::getName() const
 {
   return "ModernGLBackend";
 }
+
+// -----------------------------------------------------------------------
+// Initialize / Shutdown
+// -----------------------------------------------------------------------
 
 SbBool
 SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
@@ -222,6 +143,10 @@ SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
     return FALSE;
   }
 
+  // Cache attribute locations
+  this->posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
+  this->normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
+
   // Initialize GPU pick buffer
   pickBuffer = std::make_unique<SoIDPickBuffer>();
   if (!pickBuffer->initialize()) {
@@ -241,22 +166,13 @@ SoModernGLBackend::shutdown()
   }
   pickBuffer.reset();
 
-  if (this->vertexBuffer) {
-    glDeleteBuffers(1, &this->vertexBuffer);
-    this->vertexBuffer = 0;
+  // Destroy all cached GPU resources
+  for (auto & entry : gpuCache) {
+    destroyCacheEntry(entry);
   }
-  if (this->normalBuffer) {
-    glDeleteBuffers(1, &this->normalBuffer);
-    this->normalBuffer = 0;
-  }
-  if (this->indexBuffer) {
-    glDeleteBuffers(1, &this->indexBuffer);
-    this->indexBuffer = 0;
-  }
-  if (this->vao) {
-    glDeleteVertexArrays(1, &this->vao);
-    this->vao = 0;
-  }
+  gpuCache.clear();
+  ptrToCacheIndex.clear();
+
   if (this->shaderProgram) {
     glDeleteProgram(this->shaderProgram);
     this->shaderProgram = 0;
@@ -265,6 +181,149 @@ SoModernGLBackend::shutdown()
   this->emitLog("shutdown");
 }
 
+// -----------------------------------------------------------------------
+// GPU Cache Management
+// -----------------------------------------------------------------------
+
+CachedGPUCommand &
+SoModernGLBackend::getOrCreateCache(const float * posPtr, const uint32_t * idxPtr)
+{
+  CacheKey key{posPtr, idxPtr};
+  auto it = ptrToCacheIndex.find(key);
+  if (it != ptrToCacheIndex.end()) {
+    return gpuCache[it->second];
+  }
+  int idx = static_cast<int>(gpuCache.size());
+  gpuCache.emplace_back();
+  ptrToCacheIndex[key] = idx;
+  return gpuCache[idx];
+}
+
+void
+SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
+                                  const SoRenderCommand & cmd)
+{
+  ZoneScopedN("uploadGeometry");
+  GLsizei stride = static_cast<GLsizei>(
+    cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+
+  // Position VBO
+  if (entry.posVBO == 0) glGenBuffers(1, &entry.posVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, entry.posVBO);
+  glBufferData(GL_ARRAY_BUFFER,
+               cmd.geometry.vertexCount * stride,
+               cmd.geometry.positions, GL_STATIC_DRAW);
+
+  // Normal VBO
+  if (cmd.geometry.normals) {
+    if (entry.normVBO == 0) glGenBuffers(1, &entry.normVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, entry.normVBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 cmd.geometry.vertexCount * stride,
+                 cmd.geometry.normals, GL_STATIC_DRAW);
+  }
+
+  // Index VBO
+  if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+    if (entry.idxVBO == 0) glGenBuffers(1, &entry.idxVBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 cmd.geometry.indexCount * sizeof(uint32_t),
+                 cmd.geometry.indices, GL_STATIC_DRAW);
+  }
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+  // Update cache keys
+  entry.posKey = cmd.geometry.positions;
+  entry.normKey = cmd.geometry.normals;
+  entry.idxKey = cmd.geometry.indices;
+  entry.vertexCount = cmd.geometry.vertexCount;
+  entry.indexCount = cmd.geometry.indexCount;
+  entry.vertexStride = static_cast<uint32_t>(stride);
+}
+
+void
+SoModernGLBackend::setupVisualVAO(CachedGPUCommand & entry,
+                                  const SoRenderCommand & cmd)
+{
+  if (entry.vao == 0) glGenVertexArrays(1, &entry.vao);
+  glBindVertexArray(entry.vao);
+
+  GLsizei stride = static_cast<GLsizei>(entry.vertexStride);
+
+  // Position attribute
+  if (this->posLoc >= 0 && entry.posVBO) {
+    glBindBuffer(GL_ARRAY_BUFFER, entry.posVBO);
+    glEnableVertexAttribArray(this->posLoc);
+    glVertexAttribPointer(this->posLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+  }
+
+  // Normal attribute
+  if (this->normLoc >= 0) {
+    if (entry.normVBO) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.normVBO);
+      glEnableVertexAttribArray(this->normLoc);
+      glVertexAttribPointer(this->normLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+    }
+    else {
+      glDisableVertexAttribArray(this->normLoc);
+      glVertexAttrib3f(this->normLoc, 0.0f, 0.0f, 1.0f);
+    }
+  }
+
+  // Index buffer
+  if (entry.idxVBO) {
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
+  }
+
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
+void
+SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
+{
+  if (entry.posVBO) { glDeleteBuffers(1, &entry.posVBO); entry.posVBO = 0; }
+  if (entry.normVBO) { glDeleteBuffers(1, &entry.normVBO); entry.normVBO = 0; }
+  if (entry.idxVBO) { glDeleteBuffers(1, &entry.idxVBO); entry.idxVBO = 0; }
+  if (entry.vao) { glDeleteVertexArrays(1, &entry.vao); entry.vao = 0; }
+  if (entry.idVAO) { glDeleteVertexArrays(1, &entry.idVAO); entry.idVAO = 0; }
+}
+
+void
+SoModernGLBackend::gcStaleEntries(int frame)
+{
+  // Remove entries unused for 3+ frames
+  // Build list of stale pointer keys, then erase from map and mark entries dead
+  for (int i = 0; i < static_cast<int>(gpuCache.size()); i++) {
+    auto & entry = gpuCache[i];
+    if (entry.posVBO == 0) continue;  // already dead
+    if (frame - entry.lastUsedFrame > 3) {
+      ptrToCacheIndex.erase(CacheKey{entry.posKey, entry.idxKey});
+      destroyCacheEntry(entry);
+      entry.posKey = nullptr;
+      entry.idxKey = nullptr;
+    }
+  }
+}
+
+const CachedGPUCommand *
+SoModernGLBackend::getCachedCommand(int cmdIndex) const
+{
+  // cmdIndex maps to draw list position; we need to look up by pointer
+  // This method is called by the ID pass which iterates draw list commands
+  // The caller should use the position pointer to find the cache entry
+  (void)cmdIndex;
+  return nullptr;  // Use ptrToCacheIndex directly instead
+}
+
+// -----------------------------------------------------------------------
+// Render
+// -----------------------------------------------------------------------
+
 SbBool
 SoModernGLBackend::render(const SoDrawList & drawlist,
                           const SoRenderParams & params)
@@ -272,24 +331,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   ZoneScopedN("GLBackend::render");
   this->debugValidateDrawList(drawlist);
   this->logFrameStats(drawlist, params);
+  this->currentFrame = params.frameIndex;
 
-  // Mark pick buffer dirty when camera changes
-  // (viewProjMatrix changes between frames when camera moves)
-  this->pickBufferDirty = true;  // Conservative: always dirty, optimized later
+  this->pickBufferDirty = true;
 
   if (!this->shaderProgram) return TRUE;
-  if (this->vao == 0) {
-    glGenVertexArrays(1, &this->vao);
-  }
-  if (this->vertexBuffer == 0) {
-    glGenBuffers(1, &this->vertexBuffer);
-  }
-  if (this->normalBuffer == 0) {
-    glGenBuffers(1, &this->normalBuffer);
-  }
-  if (this->indexBuffer == 0) {
-    glGenBuffers(1, &this->indexBuffer);
-  }
 
   // Enable depth test
   glEnable(GL_DEPTH_TEST);
@@ -297,8 +343,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   glDepthMask(GL_TRUE);
 
   glUseProgram(this->shaderProgram);
-  glBindVertexArray(this->vao);
-  this->vaoInitialized = TRUE;
 
   // Upload view and projection matrices (once per frame)
   SbMat viewMat, projMat;
@@ -307,19 +351,43 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
   glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
-  // Cache attribute locations (once)
-  GLint posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
-  GLint normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
-
   // Default: lighting enabled
   glUniform1f(this->uEmissiveLocation, 0.0f);
 
-  // Lambda to draw a single command using the fallback shader + CPU data path
-  auto drawCommand = [&](const SoRenderCommand & cmd) {
+  const int count = drawlist.getNumCommands();
+
+  // --- Cache-aware draw: ensure all commands have cached VBOs/VAOs ---
+  {
+    ZoneScopedN("cacheUpdate");
+    for (int i = 0; i < count; ++i) {
+      const SoRenderCommand & cmd = drawlist.getCommand(i);
+      if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) continue;
+      if (cmd.geometry.vertexCount > 10000000) continue;
+
+      GLsizei stride = static_cast<GLsizei>(
+        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+
+      CachedGPUCommand & entry = getOrCreateCache(cmd.geometry.positions, cmd.geometry.indices);
+      if (!entry.isGeometryValid(cmd.geometry.positions, cmd.geometry.normals,
+                                 cmd.geometry.indices, cmd.geometry.vertexCount,
+                                 cmd.geometry.indexCount, static_cast<uint32_t>(stride))) {
+        uploadGeometry(entry, cmd);
+        setupVisualVAO(entry, cmd);
+      }
+      entry.lastUsedFrame = this->currentFrame;
+    }
+  }
+
+  // --- Draw lambda: bind cached VAO, set uniforms, draw ---
+  auto drawCached = [&](const SoRenderCommand & cmd) {
     if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
-    // Guard against stale pointers during scene graph changes
-    if (cmd.geometry.vertexCount > 10000000) return;  // sanity limit
+    if (cmd.geometry.vertexCount > 10000000) return;
     if (cmd.geometry.indexCount > 0 && !cmd.geometry.indices) return;
+
+    auto it = ptrToCacheIndex.find(CacheKey{cmd.geometry.positions, cmd.geometry.indices});
+    if (it == ptrToCacheIndex.end()) return;
+    const CachedGPUCommand & entry = gpuCache[it->second];
+    if (entry.vao == 0) return;
 
     // Per-command model matrix
     SbMat modelMat;
@@ -338,51 +406,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     else if (prim == GL_LINES || prim == GL_LINE_STRIP) {
       glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
     }
-    GLsizei stride = static_cast<GLsizei>(
-      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
-    // Upload positions
-    glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER,
-                 cmd.geometry.vertexCount * stride,
-                 cmd.geometry.positions, GL_STREAM_DRAW);
-    if (posLoc >= 0) {
-      glEnableVertexAttribArray(posLoc);
-      glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-    }
-
-    // Upload normals
-    if (cmd.geometry.normals && normLoc >= 0) {
-      glBindBuffer(GL_ARRAY_BUFFER, this->normalBuffer);
-      glBufferData(GL_ARRAY_BUFFER,
-                   cmd.geometry.vertexCount * stride,
-                   cmd.geometry.normals, GL_STREAM_DRAW);
-      glEnableVertexAttribArray(normLoc);
-      glVertexAttribPointer(normLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-    }
-    else if (normLoc >= 0) {
-      glDisableVertexAttribArray(normLoc);
-      glVertexAttrib3f(normLoc, 0.0f, 0.0f, 1.0f);
-    }
-
-    // Draw
-    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
-      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                   cmd.geometry.indexCount * sizeof(uint32_t),
-                   cmd.geometry.indices, GL_STREAM_DRAW);
+    glBindVertexArray(entry.vao);
+    if (cmd.geometry.indexCount > 0) {
       glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
     }
     else {
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
       glDrawArrays(prim, 0, cmd.geometry.vertexCount);
     }
-
-    if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
-    if (normLoc >= 0) glDisableVertexAttribArray(normLoc);
   };
-
-  const int count = drawlist.getNumCommands();
 
   // Pass 1: Opaque — depth write on, no blending
   glDepthMask(GL_TRUE);
@@ -390,7 +422,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   for (int i = 0; i < count; ++i) {
     const SoRenderCommand & cmd = drawlist.getCommand(i);
     if (cmd.pass != SO_RENDERPASS_OPAQUE) continue;
-    drawCommand(cmd);
+    drawCached(cmd);
   }
 
   // Pass 2: Transparent — depth write off, alpha blending
@@ -400,7 +432,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   for (int i = 0; i < count; ++i) {
     const SoRenderCommand & cmd = drawlist.getCommand(i);
     if (cmd.pass == SO_RENDERPASS_OPAQUE) continue;
-    drawCommand(cmd);
+    drawCached(cmd);
   }
 
   // Pass 3: Selection/highlight overlays — emissive flat color on top
@@ -411,9 +443,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   glUniform1f(this->uEmissiveLocation, 1.0f);
 
   // Helper: draw a sub-range or whole command for overlay
-  auto drawElementRange = [&](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
+  auto drawElementRange = [](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-      // Indexed geometry (faces, edges): use faceStart/faceCount for sub-range
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.pick.faceStart.size())) {
         int offset = cmd.pick.faceStart[elemIdx];
         int cnt = cmd.pick.faceCount[elemIdx];
@@ -422,14 +453,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
                          static_cast<uintptr_t>(offset * sizeof(uint32_t))));
       }
       else {
-        // Whole body (-2) or out of range
         glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
       }
     }
     else {
-      // Non-indexed geometry (points): elemIdx is the vertex offset
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.geometry.vertexCount)) {
-        glPointSize(8.0f);  // Larger point for highlighted vertex
+        glPointSize(8.0f);
         glDrawArrays(prim, elemIdx, 1);
       }
       else {
@@ -445,35 +474,22 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     bool hasSelection = !cmd.selection.selectedElements.empty();
     if (!hasHighlight && !hasSelection) continue;
 
-    if (!cmd.geometry.positions || posLoc < 0) continue;
+    if (!cmd.geometry.positions) continue;
+    auto it = ptrToCacheIndex.find(CacheKey{cmd.geometry.positions, cmd.geometry.indices});
+    if (it == ptrToCacheIndex.end()) continue;
+    const CachedGPUCommand & entry = gpuCache[it->second];
+    if (entry.vao == 0) continue;
 
     SbMat modelMat;
     cmd.modelMatrix.getValue(modelMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
-    GLsizei stride = static_cast<GLsizei>(
-      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
-    // Upload geometry once
-    glBindBuffer(GL_ARRAY_BUFFER, this->vertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER,
-                 cmd.geometry.vertexCount * stride,
-                 cmd.geometry.positions, GL_STREAM_DRAW);
-    glEnableVertexAttribArray(posLoc);
-    glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-    if (normLoc >= 0) {
-      glDisableVertexAttribArray(normLoc);
-      glVertexAttrib3f(normLoc, 0.0f, 0.0f, 1.0f);
-    }
-    if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, this->indexBuffer);
-      glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                   cmd.geometry.indexCount * sizeof(uint32_t),
-                   cmd.geometry.indices, GL_STREAM_DRAW);
-    }
+    // Bind cached VAO (has pos + norm + idx already set up).
+    // For emissive overlay, normals are ignored by the shader (u_emissive > 0.5).
+    glBindVertexArray(entry.vao);
 
-    // Draw selection overlays first (underneath highlight)
     if (hasSelection) {
       const SbVec4f & sc = cmd.selection.selectionColor;
       glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 0.5f);
@@ -482,22 +498,22 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       }
     }
 
-    // Draw highlight on top
     if (hasHighlight) {
       const SbVec4f & hc = cmd.selection.highlightColor;
       glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], 0.6f);
       drawElementRange(cmd, hlElem, prim);
     }
-
-    if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
   }
 
-  glUniform1f(this->uEmissiveLocation, 0.0f);  // Restore lighting mode
+  glUniform1f(this->uEmissiveLocation, 0.0f);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
   glBindVertexArray(0);
   glUseProgram(0);
+
+  // GC stale cache entries
+  gcStaleEntries(this->currentFrame);
 
   // Render ID buffer for GPU picking (when pick LUT exists)
   if (pickBuffer) {
@@ -505,24 +521,33 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
     pickBuffer->resize(vpSize[0], vpSize[1]);
 
-    // Only rebuild per-vertex ID colors when LUT changes
     if (lut.size() != lastPickLUTSize) {
       pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
       lastPickLUTSize = lut.size();
       pickBufferDirty = true;
-
     }
 
-    // Only re-render ID buffer when camera moved or LUT changed
     if (pickBufferDirty && !lut.empty()) {
-      SbMat viewMat, projMat;
-      params.viewMatrix.getValue(viewMat);
-      params.projMatrix.getValue(projMat);
-      pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist);
+      // Build per-command VBO info array so the ID pass can reuse cached VBOs
+      std::vector<SoIDPassVBOInfo> vboInfo(count);
+      for (int i = 0; i < count; ++i) {
+        const SoRenderCommand & cmd = drawlist.getCommand(i);
+        vboInfo[i] = {0, 0, 0};
+        if (!cmd.geometry.positions) continue;
+        auto it = ptrToCacheIndex.find(
+          CacheKey{cmd.geometry.positions, cmd.geometry.indices});
+        if (it != ptrToCacheIndex.end()) {
+          const CachedGPUCommand & entry = gpuCache[it->second];
+          vboInfo[i].posVBO = entry.posVBO;
+          vboInfo[i].idxVBO = entry.idxVBO;
+          vboInfo[i].vertexStride = entry.vertexStride;
+        }
+      }
+      pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist,
+                         vboInfo.data(), count);
       pickBufferDirty = false;
     }
 
-    // Debug: visualize the ID buffer when FREECAD_SHOW_ID_BUFFER=1
     static int showIdBuffer = -1;
     if (showIdBuffer < 0) {
       const char * env = coin_getenv("FREECAD_SHOW_ID_BUFFER");
@@ -535,6 +560,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   return TRUE;
 }
+
+// -----------------------------------------------------------------------
+// Misc
+// -----------------------------------------------------------------------
 
 void
 SoModernGLBackend::resizeTarget(const SoRenderTargetInfo & info)
@@ -581,7 +610,6 @@ SoModernGLBackend::createShaders()
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
-    // Compute inverse of 3x3 matrix (for normal transform)
     "mat3 inverse3(mat3 m) {\n"
     "  float det = dot(m[0], cross(m[1], m[2]));\n"
     "  if (abs(det) < 1e-10) return mat3(1.0);\n"
@@ -596,8 +624,6 @@ SoModernGLBackend::createShaders()
     "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
     "  vec4 eyePos = u_view * worldPos;\n"
     "  v_eyePos = eyePos.xyz;\n"
-    // Normal matrix = transpose(inverse(mat3(modelView)))
-    // This is correct regardless of matrix convention issues
     "  mat3 mv3 = mat3(u_view) * mat3(u_model);\n"
     "  mat3 normalMatrix = transpose(inverse3(mv3));\n"
     "  v_eyeNormal = normalMatrix * a_normal;\n"
@@ -613,7 +639,7 @@ SoModernGLBackend::createShaders()
     "varying vec4 v_color;\n"
     "void main() {\n"
     "  if (u_emissive > 0.5) {\n"
-    "    gl_FragColor = v_color;\n"  // Flat emissive — no lighting
+    "    gl_FragColor = v_color;\n"
     "    return;\n"
     "  }\n"
     "  vec3 N = normalize(v_eyeNormal);\n"

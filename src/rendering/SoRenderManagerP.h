@@ -128,6 +128,7 @@ public:
   SoRenderBackend * modernBackend;
   SbBool modernEnabled;
   int modernFrameCounter;
+  bool drawListValid = false;  // False = scene changed, need re-traversal
 
   void invokePreRenderCallbacks(void);
   void invokePostRenderCallbacks(void);

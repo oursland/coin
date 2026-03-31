@@ -370,7 +370,8 @@ SoRenderManager::setSceneGraph(SoNode * const sceneroot)
     this->attachRootSensor(PRIVATE(this)->scene);
     //this->attachClipSensor(PRIVATE(this)->scene);
   }
-  
+  PRIVATE(this)->drawListValid = false;
+
   if (oldroot) oldroot->unref();
 }
 
@@ -416,13 +417,21 @@ SoRenderManager::getCamera(void) const
   \deprecated Will be made private in a later version of Coin
 */
 void
-SoRenderManager::nodesensorCB(void * data, SoSensor * /* sensor */)
+SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
 {
 #if COIN_DEBUG && 0 // debug
   SoDebugError::postInfo("SoRenderManager::nodesensorCB",
                          "detected change in scene graph");
 #endif // debug
-  ((SoRenderManager *)data)->scheduleRedraw();
+  SoRenderManager * self = static_cast<SoRenderManager *>(data);
+  (void)sensor;
+
+  // Always invalidate the draw list when the node sensor fires.
+  // Camera changes also trigger this sensor (camera is in the scene graph),
+  // so we always re-traverse. The VBO/VAO cache in the backend avoids
+  // redundant GPU uploads even when the draw list is rebuilt.
+  PRIVATE(self)->drawListValid = false;
+  self->scheduleRedraw();
 }
 
 /*!
@@ -494,7 +503,15 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
   action->setViewportRegion(vp);
   action->setCamera(PRIVATE(this)->camera);
-  action->apply(PRIVATE(this)->scene);
+
+  // Only re-traverse the scene graph when something other than the camera changed.
+  // Camera-only changes reuse the existing draw list (geometry hasn't changed).
+  if (!PRIVATE(this)->drawListValid ||
+      action->getDrawList().getNumCommands() == 0) {
+    action->apply(PRIVATE(this)->scene);
+    action->getMutableDrawList().buildPickLUT();
+    PRIVATE(this)->drawListValid = true;
+  }
 
   SoRenderTargetInfo targetinfo = {};
   targetinfo.size = vp.getViewportSizePixels();
@@ -503,26 +520,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   targetinfo.depthFormat = 0;
   targetinfo.targetId = 0;
   backend->resizeTarget(targetinfo);
-
-  // Build pick LUT after traversal, before rendering
-  action->getMutableDrawList().buildPickLUT();
-
-  // Debug: scan for highlights set during traversal
-  {
-    int n = action->getMutableDrawList().getNumCommands();
-    for (int i = 0; i < n; ++i) {
-      auto & c = action->getMutableDrawList().getCommand(i);
-      if (c.selection.highlightElement != -1 || !c.selection.selectedElements.empty()) {
-        ZoneScopedN("pre-render hl/sel");
-        char buf[192];
-        std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d sel=%zu id=%.80s",
-                      i, c.selection.highlightElement,
-                      c.selection.selectedElements.size(),
-                      c.pick.pickIdentity.c_str());
-        ZoneText(buf, std::strlen(buf));
-      }
-    }
-  }
 
   const SoDrawList & list = action->getDrawList();
   SoRenderParams params = {};
@@ -1826,6 +1823,12 @@ SoRenderManager::getGpuPickElementType(uint32_t lutIndex) const
   const auto & lut = action->getDrawList().getPickLUT();
   if (lutIndex > lut.size()) return -1;
   return static_cast<int>(lut[lutIndex - 1].elementType);
+}
+
+void
+SoRenderManager::invalidateDrawList()
+{
+  PRIVATE(this)->drawListValid = false;
 }
 
 void
