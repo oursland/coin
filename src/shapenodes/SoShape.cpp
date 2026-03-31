@@ -644,16 +644,13 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Default: no-op. Shapes must explicitly override render() to
-  // participate in the modern rendering path. The generatePrimitives()
-  // fallback is too expensive for complex models (2.5s+ for 3000 shapes,
-  // heap corruption risk from unbounded PV cache growth).
-  //
-  // Shapes that override this should either:
-  // 1. Use ensurePVCache() + SoModernIR::appendCacheDrawCommands() if
-  //    they have a PV cache, or
-  // 2. Emit SoRenderCommands directly from their cached geometry.
-  (void)action;
+  // Default fallback: build a PV cache via generatePrimitives() and emit
+  // draw commands from it. This works for any shape but is slower than
+  // a dedicated render() override. BRep shapes (SoBrepFaceSet etc.) have
+  // their own overrides and never reach this code.
+  if (!this->ensurePVCache(action)) return;
+  SoModernIR::appendCacheDrawCommands(
+    PRIVATE(this)->pvcache, action, this);
 }
 
 // Doc in parent.

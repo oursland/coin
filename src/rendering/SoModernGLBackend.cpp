@@ -346,6 +346,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   if (!this->shaderProgram) return TRUE;
 
+  // Clear depth if requested (bit 2 — used for overlay passes)
+  if (params.flags & 4u) {
+    glClear(GL_DEPTH_BUFFER_BIT);
+  }
+
   // Enable depth test
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LEQUAL);
@@ -531,7 +536,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // Render ID buffer for GPU picking — skip during interactive navigation
   // (no preselection during orbit/pan/zoom, saves ~11ms per frame)
   bool interactive = (params.flags & 2u) != 0;
-  if (pickBuffer && !interactive) {
+  bool skipIdBuffer = (params.flags & 8u) != 0;
+  if (pickBuffer && !interactive && !skipIdBuffer) {
     const auto & lut = drawlist.getPickLUT();
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
     pickBuffer->resize(vpSize[0], vpSize[1]);

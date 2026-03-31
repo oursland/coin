@@ -69,6 +69,7 @@
 #include <Inventor/system/renderer.h>
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
+#include <Inventor/nodes/SoGroup.h>
 #include <Inventor/elements/SoDrawStyleElement.h>
 #include <Inventor/elements/SoComplexityTypeElement.h>
 #include <Inventor/elements/SoPolygonOffsetElement.h>
@@ -272,6 +273,7 @@ SoRenderManager::SoRenderManager(void)
   PRIVATE(this)->stereostencilmask = NULL;
   PRIVATE(this)->superimpositions = NULL;
   PRIVATE(this)->modernAction = NULL;
+  PRIVATE(this)->overlayAction = NULL;
   PRIVATE(this)->modernBackend = NULL;
   PRIVATE(this)->modernEnabled = FALSE;
 
@@ -322,6 +324,7 @@ SoRenderManager::~SoRenderManager()
     delete PRIVATE(this)->modernBackend;
   }
   delete PRIVATE(this)->modernAction;
+  delete PRIVATE(this)->overlayAction;
 
   PRIVATE(this)->dummynode->unref();
 
@@ -577,10 +580,20 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
   backend->render(list, params);
 
-  // Render FOREGROUND superimpositions via legacy action (after main scene).
-  // Invalidate state since the modern backend changed GL state behind
-  // the legacy action's back (shader program, VAOs, depth func, etc.).
+  // Render FOREGROUND superimpositions via legacy action.
+  // The NaviCube's internal scene graph uses Coin nodes (SoTexture2 etc.)
+  // that require state elements not enabled for SoModernRenderAction.
+  // Until all overlay nodes are migrated, use the legacy path.
   if (PRIVATE(this)->superimpositions) {
+    glUseProgram(0);
+#if defined(__APPLE__) && !defined(glBindVertexArray)
+    glBindVertexArrayAPPLE(0);
+#else
+    glBindVertexArray(0);
+#endif
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
     glaction->invalidateState();
     for (int i = 0; i < PRIVATE(this)->superimpositions->getLength(); i++) {
       Superimposition * s = (Superimposition *) (*PRIVATE(this)->superimpositions)[i];

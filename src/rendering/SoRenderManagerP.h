@@ -125,11 +125,12 @@ public:
   SbPList * superimpositions;
 
   SoModernRenderAction * modernAction;
+  SoModernRenderAction * overlayAction;  // Separate action for foreground overlays
   SoRenderBackend * modernBackend;
   SbBool modernEnabled;
   int modernFrameCounter;
-  bool drawListValid = false;  // False = scene changed, need re-traversal
-  SbBool interactive = FALSE;  // True during camera orbit/pan/zoom
+  bool drawListValid = false;
+  SbBool interactive = FALSE;
 
   void invokePreRenderCallbacks(void);
   void invokePostRenderCallbacks(void);

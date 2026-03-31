@@ -74,6 +74,7 @@ public:
     void render(SoGLRenderAction * action, SbBool clearcolorbuffer = FALSE);
     void setEnabled(SbBool yes);
     int getStateFlags(void) const;
+    SoNode * getScene(void) const;
     void setTransparencyType(SoGLRenderAction::TransparencyType transparencytype);
 
   private:
