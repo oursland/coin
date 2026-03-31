@@ -1818,6 +1818,16 @@ SoRenderManager::getGpuPickElement(uint32_t lutIndex) const
   return lut[lutIndex - 1].elementIndex;
 }
 
+int
+SoRenderManager::getGpuPickElementType(uint32_t lutIndex) const
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action || lutIndex == 0) return -1;
+  const auto & lut = action->getDrawList().getPickLUT();
+  if (lutIndex > lut.size()) return -1;
+  return static_cast<int>(lut[lutIndex - 1].elementType);
+}
+
 /*!
   Returns pointer to render action.
  */

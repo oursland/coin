@@ -204,6 +204,10 @@ public:
   /// Get the element index (face/edge/vertex) for a pick LUT entry.
   /// Returns -1 if index is out of range.
   int getGpuPickElement(uint32_t lutIndex) const;
+
+  /// Get the element type for a pick LUT entry.
+  /// Returns: 0=face, 1=edge, 2=vertex, 3=whole_body, -1=invalid
+  int getGpuPickElementType(uint32_t lutIndex) const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

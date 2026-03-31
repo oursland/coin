@@ -330,6 +330,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
                 diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
+    if (prim == GL_POINTS) {
+      glPointSize(std::max(cmd.state.raster.lineWidth, 4.0f));
+    }
+    else if (prim == GL_LINES || prim == GL_LINE_STRIP) {
+      glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
+    }
     GLsizei stride = static_cast<GLsizei>(
       cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
