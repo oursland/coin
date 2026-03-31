@@ -481,9 +481,24 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 {
   if (!PRIVATE(this)->scene) return;
 
+  SoGLRenderAction * glaction = PRIVATE(this)->glaction;
+  PRIVATE(this)->invokePreRenderCallbacks();
+
+  // Render BACKGROUND superimpositions via legacy action (before main scene)
+  SbBool clearwindow_tmp = clearwindow;
+  if (PRIVATE(this)->superimpositions) {
+    for (int i = 0; i < PRIVATE(this)->superimpositions->getLength(); i++) {
+      Superimposition * s = (Superimposition *) (*PRIVATE(this)->superimpositions)[i];
+      if (s->getStateFlags() & Superimposition::BACKGROUND) {
+        s->render(glaction, clearwindow_tmp);
+        clearwindow_tmp = FALSE;
+      }
+    }
+  }
+
   SoModernRenderAction * action = PRIVATE(this)->modernAction;
   if (!action) {
-    action = new SoModernRenderAction(PRIVATE(this)->glaction->getViewportRegion());
+    action = new SoModernRenderAction(glaction->getViewportRegion());
     PRIVATE(this)->modernAction = action;
   }
 
@@ -492,7 +507,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     backend = new SoModernGLBackend();
     PRIVATE(this)->modernBackend = backend;
     SoRenderBackendInitParams initparams = {};
-    SbVec2s size = PRIVATE(this)->glaction->getViewportRegion().getViewportSizePixels();
+    SbVec2s size = glaction->getViewportRegion().getViewportSizePixels();
     initparams.targetInfo.size = size;
     initparams.targetInfo.samples = 1;
     initparams.targetInfo.colorFormat = 0;
@@ -502,7 +517,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     backend->initialize(initparams);
   }
 
-  this->clearBuffers(clearwindow, clearzbuffer);
+  this->clearBuffers(clearwindow_tmp, clearzbuffer);
 
   SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
   action->setViewportRegion(vp);
@@ -561,6 +576,21 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   params.contextId = SoGLCacheContextElement::get(action->getState());
 
   backend->render(list, params);
+
+  // Render FOREGROUND superimpositions via legacy action (after main scene).
+  // Invalidate state since the modern backend changed GL state behind
+  // the legacy action's back (shader program, VAOs, depth func, etc.).
+  if (PRIVATE(this)->superimpositions) {
+    glaction->invalidateState();
+    for (int i = 0; i < PRIVATE(this)->superimpositions->getLength(); i++) {
+      Superimposition * s = (Superimposition *) (*PRIVATE(this)->superimpositions)[i];
+      if (!(s->getStateFlags() & Superimposition::BACKGROUND)) {
+        s->render(glaction);
+      }
+    }
+  }
+
+  PRIVATE(this)->invokePostRenderCallbacks();
 }
 
 /*
