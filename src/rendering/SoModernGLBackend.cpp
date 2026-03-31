@@ -333,7 +333,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   this->logFrameStats(drawlist, params);
   this->currentFrame = params.frameIndex;
 
-  this->pickBufferDirty = true;
+  // Only re-render the ID buffer when camera or scene changes
+  if (!matricesInitialized ||
+      params.viewMatrix != lastViewMatrix ||
+      params.projMatrix != lastProjMatrix) {
+    this->pickBufferDirty = true;
+    lastViewMatrix = params.viewMatrix;
+    lastProjMatrix = params.projMatrix;
+    matricesInitialized = true;
+  }
 
   if (!this->shaderProgram) return TRUE;
 

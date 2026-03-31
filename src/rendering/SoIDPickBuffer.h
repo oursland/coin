@@ -121,9 +121,18 @@ private:
   std::vector<uint32_t> idColorVBOs;
   std::vector<int> idColorVertexCounts;
 
-  // Temporary VBOs for CPU data upload in ID pass
+  // Temporary VBOs for CPU data upload in ID pass (fallback)
   uint32_t tempPosVBO = 0;
   uint32_t tempIdxVBO = 0;
+
+  // Per-command ID VAOs (lazily built from cached VBOs + idColorVBOs)
+  std::vector<uint32_t> idVAOs;
+  std::vector<uint32_t> idVAOColorKey;  // idColorVBO bound when VAO was built
+  std::vector<uint32_t> idVAOPosKey;    // posVBO bound when VAO was built
+
+  // Cached attribute locations for the ID shader
+  int cachedPosLoc = -1;
+  int cachedIdColorLoc = -1;
 
   // Pick dimensions
   float pickLineWidth = 7.0f;
