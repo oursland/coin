@@ -287,6 +287,9 @@ public:
   const std::vector<SoPickLUTEntry> & getPickLUT() const { return pickLUT; }
   std::vector<SoPickLUTEntry> & getMutablePickLUT() { return pickLUT; }
 
+  //! Sort commands for correct render ordering (back-to-front transparency).
+  void sortCommands(const SbMatrix & viewMatrix);
+
   //! Build the pick LUT from the current commands. Each face of BRep
   //! shapes gets a separate entry; edges/points/whole-body get one each.
   void buildPickLUT();

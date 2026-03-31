@@ -509,6 +509,17 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   if (!PRIVATE(this)->drawListValid ||
       action->getDrawList().getNumCommands() == 0) {
     action->apply(PRIVATE(this)->scene);
+
+    // Sort commands for correct render ordering before building pick LUT.
+    // Transparent commands are sorted back-to-front for correct alpha blending.
+    if (PRIVATE(this)->camera) {
+      float aspect = vp.getViewportAspectRatio();
+      SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
+      SbMatrix sortView, sortProj;
+      vv.getMatrices(sortView, sortProj);
+      action->getMutableDrawList().sortCommands(sortView);
+    }
+
     action->getMutableDrawList().buildPickLUT();
     PRIVATE(this)->drawListValid = true;
   }
