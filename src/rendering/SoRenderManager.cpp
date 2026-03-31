@@ -424,13 +424,17 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
                          "detected change in scene graph");
 #endif // debug
   SoRenderManager * self = static_cast<SoRenderManager *>(data);
-  (void)sensor;
+  SoNodeSensor * ns = static_cast<SoNodeSensor *>(sensor);
 
-  // Always invalidate the draw list when the node sensor fires.
-  // Camera changes also trigger this sensor (camera is in the scene graph),
-  // so we always re-traverse. The VBO/VAO cache in the backend avoids
-  // redundant GPU uploads even when the draw list is rebuilt.
-  PRIVATE(self)->drawListValid = false;
+  // Check if the change came from the camera node only.
+  // If so, the draw list geometry is unchanged — skip re-traversal.
+  SoNode * trigger = ns->getTriggerNode();
+  if (trigger && trigger == PRIVATE(self)->camera) {
+    // Camera-only change: draw list still valid, just re-render
+  } else {
+    // Scene structure/geometry changed: must re-traverse
+    PRIVATE(self)->drawListValid = false;
+  }
   self->scheduleRedraw();
 }
 
@@ -1841,6 +1845,43 @@ void
 SoRenderManager::invalidateDrawList()
 {
   PRIVATE(this)->drawListValid = false;
+}
+
+bool
+SoRenderManager::setDrawListHighlight(uint32_t lutIndex, const SbColor4f & color)
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action) return false;
+  SoDrawList & drawlist = action->getMutableDrawList();
+  int numCmds = drawlist.getNumCommands();
+
+  // Clear previous highlight on all commands
+  for (int i = 0; i < numCmds; i++) {
+    SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (cmd.selection.highlightElement != -1) {
+      cmd.selection.highlightElement = -1;
+    }
+  }
+
+  if (lutIndex == 0) return true;  // Just clearing
+
+  const auto & lut = drawlist.getPickLUT();
+  if (lutIndex > lut.size()) return false;
+
+  const SoPickLUTEntry & entry = lut[lutIndex - 1];
+  int cmdIdx = entry.commandIndex;
+  if (cmdIdx < 0 || cmdIdx >= numCmds) return false;
+
+  SoRenderCommand & cmd = drawlist.getCommand(cmdIdx);
+  cmd.selection.highlightElement = entry.elementIndex;
+  cmd.selection.highlightColor.setValue(color[0], color[1], color[2], color[3]);
+  return true;
+}
+
+void
+SoRenderManager::clearDrawListHighlight()
+{
+  setDrawListHighlight(0, SbColor4f(0, 0, 0, 0));
 }
 
 void

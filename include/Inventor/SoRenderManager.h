@@ -220,9 +220,16 @@ public:
   float getGpuPickPointSize() const;
 
   /// Force the modern renderer to re-traverse the scene graph on the next frame.
-  /// Call this when scene state changes outside the normal sensor path
-  /// (e.g., selection highlight changes applied directly to the draw list).
   void invalidateDrawList();
+
+  /// Directly set preselection highlight on a draw list command by pick LUT index.
+  /// Avoids scene graph traversal. Returns true if highlight was applied.
+  /// @param lutIndex  Pick LUT index (1-based, from gpuPick). 0 clears all highlights.
+  /// @param color     Highlight color (RGBA).
+  bool setDrawListHighlight(uint32_t lutIndex, const SbColor4f & color);
+
+  /// Clear all preselection highlights in the draw list.
+  void clearDrawListHighlight();
 
   /// Set interactive mode (true during camera orbit/pan/zoom).
   /// When interactive, the backend skips the ID pick buffer to save GPU time.
