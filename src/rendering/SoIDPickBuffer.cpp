@@ -241,7 +241,7 @@ SoIDPickBuffer::buildIdColorVBOs(const SoDrawList & drawlist, uint32_t /*context
       encodeIdToRGBA(lutId, rgba);
 
       if (le->eboCount > 0 && cmd.geometry.indices) {
-        // Per-face: color vertices referenced by this face's index range
+        // Per-face/edge: color vertices referenced by this element's index range
         int start = le->eboOffset;
         int end = std::min(start + le->eboCount,
                            static_cast<int>(cmd.geometry.indexCount));
@@ -253,6 +253,16 @@ SoIDPickBuffer::buildIdColorVBOs(const SoDrawList & drawlist, uint32_t /*context
             colors[vi * 4 + 2] = rgba[2];
             colors[vi * 4 + 3] = rgba[3];
           }
+        }
+      }
+      else if (le->eboCount == 1 && !cmd.geometry.indices) {
+        // Per-vertex (non-indexed): color single vertex at eboOffset
+        int vi = le->eboOffset;
+        if (vi >= 0 && vi < numVerts) {
+          colors[vi * 4 + 0] = rgba[0];
+          colors[vi * 4 + 1] = rgba[1];
+          colors[vi * 4 + 2] = rgba[2];
+          colors[vi * 4 + 3] = rgba[3];
         }
       }
       else {

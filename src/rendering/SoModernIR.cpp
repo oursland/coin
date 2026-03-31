@@ -171,24 +171,42 @@ SoDrawList::buildPickLUT()
     }
     else if (cmd.geometry.topology == SO_TOPOLOGY_LINES ||
              cmd.geometry.topology == SO_TOPOLOGY_LINE_STRIP) {
-      // Edge set
-      SoPickLUTEntry le;
-      le.commandIndex = ci;
-      le.elementType = SO_PICK_EDGE;
-      le.elementIndex = 0;
-      le.eboOffset = 0;
-      le.eboCount = 0;
-      pickLUT.push_back(le);
+      if (!cmd.pick.faceStart.empty()) {
+        // Per-edge entries (faceStart/faceCount populated by SoBrepEdgeSet)
+        int numEdges = static_cast<int>(cmd.pick.faceStart.size());
+        for (int e = 0; e < numEdges; e++) {
+          SoPickLUTEntry le;
+          le.commandIndex = ci;
+          le.elementType = SO_PICK_EDGE;
+          le.elementIndex = e;
+          le.eboOffset = cmd.pick.faceStart[e];
+          le.eboCount = cmd.pick.faceCount[e];
+          pickLUT.push_back(le);
+        }
+      }
+      else {
+        // Whole edge set
+        SoPickLUTEntry le;
+        le.commandIndex = ci;
+        le.elementType = SO_PICK_EDGE;
+        le.elementIndex = 0;
+        le.eboOffset = 0;
+        le.eboCount = 0;
+        pickLUT.push_back(le);
+      }
     }
     else if (cmd.geometry.topology == SO_TOPOLOGY_POINTS) {
-      // Point set
-      SoPickLUTEntry le;
-      le.commandIndex = ci;
-      le.elementType = SO_PICK_VERTEX;
-      le.elementIndex = 0;
-      le.eboOffset = 0;
-      le.eboCount = 0;
-      pickLUT.push_back(le);
+      // Per-vertex entries: each vertex gets its own LUT entry
+      int numVerts = static_cast<int>(cmd.geometry.vertexCount);
+      for (int v = 0; v < numVerts; v++) {
+        SoPickLUTEntry le;
+        le.commandIndex = ci;
+        le.elementType = SO_PICK_VERTEX;
+        le.elementIndex = v;
+        le.eboOffset = v;
+        le.eboCount = 1;
+        pickLUT.push_back(le);
+      }
     }
 
     cmd.pick.pickLutCount = static_cast<uint32_t>(pickLUT.size()) - cmd.pick.pickLutBase;
