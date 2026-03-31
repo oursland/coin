@@ -424,22 +424,26 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
   };
 
-  // Pass 1: Opaque — depth write on, no blending
+  // Iterate in sorted order: opaque front-to-back, then transparent back-to-front.
+  // The sortedOrder array encodes pass type in the sort key, so opaque commands
+  // come first, then transparent. We switch GL state at the boundary.
+  const auto & order = drawlist.getSortedOrder();
+  bool inTransparent = false;
+
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
-  for (int i = 0; i < count; ++i) {
-    const SoRenderCommand & cmd = drawlist.getCommand(i);
-    if (cmd.pass != SO_RENDERPASS_OPAQUE) continue;
-    drawCached(cmd);
-  }
 
-  // Pass 2: Transparent — depth write off, alpha blending
-  glDepthMask(GL_FALSE);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  for (int i = 0; i < count; ++i) {
-    const SoRenderCommand & cmd = drawlist.getCommand(i);
-    if (cmd.pass == SO_RENDERPASS_OPAQUE) continue;
+  for (int si = 0; si < count; ++si) {
+    int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
+    const SoRenderCommand & cmd = drawlist.getCommand(ci);
+
+    if (!inTransparent && cmd.pass == SO_RENDERPASS_TRANSPARENT) {
+      // Switch to transparent state
+      glDepthMask(GL_FALSE);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      inTransparent = true;
+    }
     drawCached(cmd);
   }
 
@@ -523,8 +527,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // GC stale cache entries
   gcStaleEntries(this->currentFrame);
 
-  // Render ID buffer for GPU picking (when pick LUT exists)
-  if (pickBuffer) {
+  // Render ID buffer for GPU picking — skip during interactive navigation
+  // (no preselection during orbit/pan/zoom, saves ~11ms per frame)
+  bool interactive = (params.flags & 2u) != 0;
+  if (pickBuffer && !interactive) {
     const auto & lut = drawlist.getPickLUT();
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
     pickBuffer->resize(vpSize[0], vpSize[1]);

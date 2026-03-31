@@ -66,6 +66,7 @@ SoDrawList::clear()
 {
   this->commands.truncate(0);
   this->pickLUT.clear();
+  this->sortedOrder.clear();
 }
 
 void
@@ -135,54 +136,49 @@ SoDrawList::end() const
 }
 
 void
-SoDrawList::sortCommands(const SbMatrix & viewMatrix)
+SoDrawList::buildSortedOrder(const SbMatrix & viewMatrix)
 {
-  ZoneScopedN("sortCommands");
+  ZoneScopedN("buildSortedOrder");
   int n = this->commands.getLength();
+  sortedOrder.resize(n);
+  for (int i = 0; i < n; i++) sortedOrder[i] = i;
   if (n <= 1) return;
 
   SoRenderCommand * arr = const_cast<SoRenderCommand *>(this->commands.getArrayPtr());
 
   // Compute camera-space depth for each command using the model matrix origin.
-  // viewMatrix transforms world → eye space; depth = -eye.z (larger = farther).
+  SbMat v;
+  viewMatrix.getValue(v);
   for (int i = 0; i < n; i++) {
     SoRenderCommand & cmd = arr[i];
     SbMat m;
     cmd.modelMatrix.getValue(m);
-    // Transform the model origin (0,0,0) by modelMatrix then viewMatrix
-    // to get eye-space position. Depth = -eyeZ.
     float wx = m[3][0], wy = m[3][1], wz = m[3][2];
-    SbMat v;
-    viewMatrix.getValue(v);
     float eyeZ = v[0][2] * wx + v[1][2] * wy + v[2][2] * wz + v[3][2];
-    // Quantize depth to 24-bit bucket. Negate so larger depth = farther.
-    // Map to [0, 0xFFFFFF] range. We use raw float bits for ordering.
-    uint32_t depthBucket;
     float depth = -eyeZ;
-    // Reinterpret float as uint32 for monotonic ordering
-    // (works for positive floats; negative handled by flip)
+
+    // Float-to-uint reinterpretation for monotonic ordering
     uint32_t bits;
     std::memcpy(&bits, &depth, sizeof(bits));
     if (bits & 0x80000000u) {
-      bits = ~bits;  // negative float: flip all bits
+      bits = ~bits;
     } else {
-      bits |= 0x80000000u;  // positive float: flip sign bit
+      bits |= 0x80000000u;
     }
-    depthBucket = (bits >> 8) & 0x00FFFFFFu;  // Top 24 bits
+    uint32_t depthBucket = (bits >> 8) & 0x00FFFFFFu;
 
-    // For opaque: front-to-back (ascending depth = ascending key)
-    // For transparent: back-to-front (descending depth = inverted key)
+    // Transparent: back-to-front (invert depth)
     uint32_t passOrder = static_cast<uint32_t>(cmd.pass);
     if (cmd.pass == SO_RENDERPASS_TRANSPARENT) {
-      depthBucket = 0x00FFFFFFu - depthBucket;  // Invert for back-to-front
+      depthBucket = 0x00FFFFFFu - depthBucket;
     }
     cmd.sortKey = SoIRComputeSortKey(cmd, passOrder, depthBucket);
   }
 
-  // Stable sort preserves traversal order for commands at the same depth
-  std::stable_sort(arr, arr + n,
-    [](const SoRenderCommand & a, const SoRenderCommand & b) {
-      return a.sortKey < b.sortKey;
+  // Sort the INDEX array by sort key, leaving commands in place
+  std::stable_sort(sortedOrder.begin(), sortedOrder.end(),
+    [arr](int a, int b) {
+      return arr[a].sortKey < arr[b].sortKey;
     });
 }
 

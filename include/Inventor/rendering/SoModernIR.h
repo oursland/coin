@@ -287,8 +287,11 @@ public:
   const std::vector<SoPickLUTEntry> & getPickLUT() const { return pickLUT; }
   std::vector<SoPickLUTEntry> & getMutablePickLUT() { return pickLUT; }
 
-  //! Sort commands for correct render ordering (back-to-front transparency).
-  void sortCommands(const SbMatrix & viewMatrix);
+  //! Build a sorted index array for correct render ordering.
+  void buildSortedOrder(const SbMatrix & viewMatrix);
+
+  //! Get the sorted rendering order (indices into the command list).
+  const std::vector<int> & getSortedOrder() const { return sortedOrder; }
 
   //! Build the pick LUT from the current commands. Each face of BRep
   //! shapes gets a separate entry; edges/points/whole-body get one each.
@@ -301,6 +304,7 @@ public:
 private:
   SbList<SoRenderCommand> commands;
   std::vector<SoPickLUTEntry> pickLUT;
+  std::vector<int> sortedOrder;
 };
 
 /*! Utility helpers declared in SoModernIR.cpp */

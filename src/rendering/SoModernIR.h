@@ -287,11 +287,13 @@ public:
   const std::vector<SoPickLUTEntry> & getPickLUT() const { return pickLUT; }
   std::vector<SoPickLUTEntry> & getMutablePickLUT() { return pickLUT; }
 
-  //! Sort commands by sort key for correct render ordering.
-  //! Opaque commands are sorted front-to-back (early-z optimization).
-  //! Transparent commands are sorted back-to-front (correct alpha blending).
-  //! @param viewMatrix  The view matrix for computing camera-space depth.
-  void sortCommands(const SbMatrix & viewMatrix);
+  //! Build a sorted index array for correct render ordering.
+  //! The draw list itself is NOT reordered — command indices stay stable
+  //! for pick LUT and command path lookups.
+  void buildSortedOrder(const SbMatrix & viewMatrix);
+
+  //! Get the sorted rendering order (indices into the command list).
+  const std::vector<int> & getSortedOrder() const { return sortedOrder; }
 
   //! Build the pick LUT from the current commands. Each face of BRep
   //! shapes gets a separate entry; edges/points/whole-body get one each.
@@ -304,6 +306,7 @@ public:
 private:
   SbList<SoRenderCommand> commands;
   std::vector<SoPickLUTEntry> pickLUT;
+  std::vector<int> sortedOrder;
 };
 
 /*! Utility helpers declared in SoModernIR.cpp */

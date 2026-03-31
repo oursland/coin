@@ -132,9 +132,10 @@ struct SoRenderParams {
   */
   uint32_t           contextId;
   /*!
-    \brief Bitfield for view-specific options (wireframe, debug overlays, etc.).
-    
-    No bits are defined yet; reserving the field keeps the ABI stable.
+    \brief Bitfield for view-specific options.
+
+    Bit 0: clear window requested
+    Bit 1: interactive mode (camera orbiting/panning — skip ID buffer)
   */
   uint32_t           flags;
   /*!

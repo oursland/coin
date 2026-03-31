@@ -223,6 +223,11 @@ public:
   /// Call this when scene state changes outside the normal sensor path
   /// (e.g., selection highlight changes applied directly to the draw list).
   void invalidateDrawList();
+
+  /// Set interactive mode (true during camera orbit/pan/zoom).
+  /// When interactive, the backend skips the ID pick buffer to save GPU time.
+  void setInteractive(SbBool interactive);
+  SbBool isInteractive() const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

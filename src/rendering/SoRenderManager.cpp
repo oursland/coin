@@ -510,14 +510,14 @@ SoRenderManager::renderModern(const SbBool clearwindow,
       action->getDrawList().getNumCommands() == 0) {
     action->apply(PRIVATE(this)->scene);
 
-    // Sort commands for correct render ordering before building pick LUT.
-    // Transparent commands are sorted back-to-front for correct alpha blending.
+    // Build sorted render order for correct transparency.
+    // This builds an index array — commands stay in place for stable pick LUT indices.
     if (PRIVATE(this)->camera) {
       float aspect = vp.getViewportAspectRatio();
       SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
       SbMatrix sortView, sortProj;
       vv.getMatrices(sortView, sortProj);
-      action->getMutableDrawList().sortCommands(sortView);
+      action->getMutableDrawList().buildSortedOrder(sortView);
     }
 
     action->getMutableDrawList().buildPickLUT();
@@ -551,7 +551,8 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   }
   params.clearColor = PRIVATE(this)->backgroundcolor;
   params.clearDepth = 1.0f;
-  params.flags = (clearwindow ? 1 : 0);
+  params.flags = (clearwindow ? 1u : 0u)
+               | (PRIVATE(this)->interactive ? 2u : 0u);
   params.state = action->getState();
   params.contextId = SoGLCacheContextElement::get(action->getState());
 
@@ -1840,6 +1841,18 @@ void
 SoRenderManager::invalidateDrawList()
 {
   PRIVATE(this)->drawListValid = false;
+}
+
+void
+SoRenderManager::setInteractive(SbBool interactive)
+{
+  PRIVATE(this)->interactive = interactive;
+}
+
+SbBool
+SoRenderManager::isInteractive() const
+{
+  return PRIVATE(this)->interactive;
 }
 
 void
