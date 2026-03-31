@@ -1828,6 +1828,34 @@ SoRenderManager::getGpuPickElementType(uint32_t lutIndex) const
   return static_cast<int>(lut[lutIndex - 1].elementType);
 }
 
+void
+SoRenderManager::setGpuPickLineWidth(float width)
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  if (backend) backend->setPickLineWidth(width);
+}
+
+float
+SoRenderManager::getGpuPickLineWidth() const
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  return backend ? backend->getPickLineWidth() : 7.0f;
+}
+
+void
+SoRenderManager::setGpuPickPointSize(float size)
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  if (backend) backend->setPickPointSize(size);
+}
+
+float
+SoRenderManager::getGpuPickPointSize() const
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  return backend ? backend->getPickPointSize() : 7.0f;
+}
+
 /*!
   Returns pointer to render action.
  */

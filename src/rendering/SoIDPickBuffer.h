@@ -64,6 +64,14 @@ public:
   uint32_t pick(int x, int y, int pickRadius = 5) const;
 
   SbBool isInitialized() const { return shaderInitialized; }
+
+  /// Set the pick line width for edges in the ID buffer (default 7.0)
+  void setPickLineWidth(float w) { pickLineWidth = w; }
+  float getPickLineWidth() const { return pickLineWidth; }
+
+  /// Set the pick point size for vertices in the ID buffer (default 7.0)
+  void setPickPointSize(float s) { pickPointSize = s; }
+  float getPickPointSize() const { return pickPointSize; }
   size_t getIdColorVBOCount() const { return idColorVBOs.size(); }
   bool hasIdColorVBO(int ci) const {
     return ci >= 0 && ci < static_cast<int>(idColorVBOs.size()) && idColorVBOs[ci] != 0;
@@ -103,6 +111,10 @@ private:
   // Temporary VBOs for CPU data upload in ID pass
   uint32_t tempPosVBO = 0;
   uint32_t tempIdxVBO = 0;
+
+  // Pick dimensions
+  float pickLineWidth = 7.0f;
+  float pickPointSize = 7.0f;
 
   // ID pass shader
   uint32_t shaderProgram = 0;

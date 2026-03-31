@@ -208,6 +208,16 @@ public:
   /// Get the element type for a pick LUT entry.
   /// Returns: 0=face, 1=edge, 2=vertex, 3=whole_body, -1=invalid
   int getGpuPickElementType(uint32_t lutIndex) const;
+
+  /// Set/get the line width for edge picking in the ID buffer.
+  /// Wider lines make edges easier to select. Default 7.0.
+  void setGpuPickLineWidth(float width);
+  float getGpuPickLineWidth() const;
+
+  /// Set/get the point size for vertex picking in the ID buffer.
+  /// Larger points make vertices easier to select. Default 7.0.
+  void setGpuPickPointSize(float size);
+  float getGpuPickPointSize() const;
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 

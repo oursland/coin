@@ -36,6 +36,18 @@ SoRenderBackend::pick(int x, int y, int pickRadius) const
   return 0; // Default: no pick support
 }
 
+void
+SoRenderBackend::setPickLineWidth(float /*width*/) {}
+
+void
+SoRenderBackend::setPickPointSize(float /*size*/) {}
+
+float
+SoRenderBackend::getPickLineWidth() const { return 7.0f; }
+
+float
+SoRenderBackend::getPickPointSize() const { return 7.0f; }
+
 SbBool
 SoRenderBackend::isInitialized() const
 {

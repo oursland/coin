@@ -36,6 +36,11 @@ public:
   /// GPU pick at pixel coordinates. Returns pick LUT index (1-based).
   uint32_t pick(int x, int y, int pickRadius = 5) const override;
 
+  void setPickLineWidth(float width) override;
+  void setPickPointSize(float size) override;
+  float getPickLineWidth() const override;
+  float getPickPointSize() const override;
+
   /// Access the pick buffer for debug visualization.
   SoIDPickBuffer * getPickBuffer() { return pickBuffer.get(); }
 

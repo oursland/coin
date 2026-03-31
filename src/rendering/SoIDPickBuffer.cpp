@@ -320,15 +320,52 @@ SoIDPickBuffer::render(const float * viewMatrix, const float * projMatrix,
 
   renderIdPass(viewMatrix, projMatrix, drawlist);
 
-  // Synchronous readback every frame — read directly from fbo
-  // Note: renderIdPass leaves fbo bound, so we're already reading from it.
-  // But bind explicitly to be safe.
+  // PBO async readback with glFinish to ensure edge pass completes
   size_t numPixels = static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight);
   pboSize = numPixels * 4;
-  cachedColor.resize(pboSize);
 
-  // Readback is now done inside renderIdPass after edge pass.
-  // (moved there to debug edge visibility in readback)
+  // glFinish ensures all draw calls (including edge pass with GL_ALWAYS)
+  // are complete before readback
+  glFinish();
+
+  if (!pboInitialized) {
+    glGenBuffers(2, pbo);
+    for (int i = 0; i < 2; i++) {
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[i]);
+      glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(pboSize),
+                   NULL, GL_STREAM_READ);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    pboInitialized = TRUE;
+    // First frame: synchronous readback
+    cachedColor.resize(pboSize);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, cachedColor.data());
+    // Prime both PBOs
+    for (int i = 0; i < 2; i++) {
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[i]);
+      glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
+  }
+  else {
+    // Read previous frame's PBO
+    int readPbo = 1 - pboIndex;
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[readPbo]);
+    const uint8_t * ptr = static_cast<const uint8_t *>(
+        glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY));
+    if (ptr) {
+      cachedColor.resize(pboSize);
+      std::memcpy(cachedColor.data(), ptr, pboSize);
+      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+    // Start async DMA for current frame
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[pboIndex]);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    pboIndex = 1 - pboIndex;
+  }
 
   glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
 }
@@ -418,7 +455,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (idColorLoc >= 0) glDisableVertexAttribArray(idColorLoc);
   };
 
-  // Pass 1: Triangles — normal depth test
+  // Pass 1: Triangles — normal depth test, standard rendering
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
@@ -426,48 +463,33 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
 
-  // Pass 2: Lines — depth ALWAYS, no depth write
-  glDepthFunc(GL_ALWAYS);
+  // Pass 2: Edges — GL_LEQUAL so edges overwrite their own coplanar faces
+  // but are correctly occluded by nearer geometry. No depth write so the
+  // face depth buffer stays intact for the vertex pass.
+  glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_FALSE);
-  {
-    int edgeDrawn = 0, edgeSkipped = 0;
-    for (int ci = 0; ci < numCmds; ci++) {
-      const SoRenderCommand & cmd = drawlist.getCommand(ci);
-      if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
-          cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
-      if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) {
-        edgeSkipped++;
-        continue;
-      }
-      glLineWidth(std::max(cmd.state.raster.lineWidth, 7.0f));
-      drawIdCmd(cmd, ci, GL_LINES);
-      edgeDrawn++;
-    }
-    static int edgeLogCount = 0;
-    if (edgeLogCount < 3) {
-      std::fprintf(stderr, "IDPickBuffer: edge pass drawn=%d skipped=%d total=%d\n",
-                   edgeDrawn, edgeSkipped, numCmds);
-      edgeLogCount++;
-    }
+  for (int ci = 0; ci < numCmds; ci++) {
+    const SoRenderCommand & cmd = drawlist.getCommand(ci);
+    if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
+        cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
+    glLineWidth(std::max(cmd.state.raster.lineWidth, pickLineWidth));
+    drawIdCmd(cmd, ci, GL_LINES);
   }
   glDepthMask(GL_TRUE);
   glDepthFunc(GL_LESS);
 
-  // Readback HERE — right after edge pass, FBO still bound with edges
-  {
-    size_t numPx = static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight);
-    pboSize = numPx * 4;
-    cachedColor.resize(pboSize);
-    glReadPixels(0, 0, fbWidth, fbHeight, GL_RGBA, GL_UNSIGNED_BYTE, cachedColor.data());
-  }
-
-  // Pass 3: Points
+  // Pass 3: Vertices — GL_LEQUAL so vertices overwrite coplanar faces/edges
+  // but are occluded by nearer geometry.
+  glDepthFunc(GL_LEQUAL);
+  glDepthMask(GL_FALSE);
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
-    glPointSize(7.0f);
+    glPointSize(std::max(cmd.state.raster.lineWidth, pickPointSize));
     drawIdCmd(cmd, ci, GL_POINTS);
   }
+  glDepthMask(GL_TRUE);
+  glDepthFunc(GL_LESS);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -496,55 +518,9 @@ SoIDPickBuffer::pick(int x, int y, int pickRadius) const
   int y1 = std::min(fbHeight, y0 + side);
   if (x1 <= x0 || y1 <= y0) return 0;
 
-  // Center-priority pick.
+  // Center-priority pick: prefer the non-zero ID closest to (x, y).
   float cx = static_cast<float>(x);
   float cy = static_cast<float>(y);
-
-  // Debug: log center pixel and count unique IDs in region
-  {
-    uint32_t centerId = 0;
-    size_t cIdx = static_cast<size_t>(y) * static_cast<size_t>(fbWidth)
-                + static_cast<size_t>(x);
-    if (cIdx * 4 + 3 < cachedColor.size()) {
-      centerId = decodeId(&cachedColor[cIdx * 4]);
-    }
-    // Count unique IDs in pick region
-    int uniqueCount = 0;
-    int zeroCount = 0;
-    uint32_t ids[4] = {0, 0, 0, 0};  // track up to 4 unique
-    for (int py = y0; py < y1; py++) {
-      for (int px = x0; px < x1; px++) {
-        size_t idx = static_cast<size_t>(py) * static_cast<size_t>(fbWidth)
-                   + static_cast<size_t>(px);
-        uint32_t id = decodeId(&cachedColor[idx * 4]);
-        if (id == 0) { zeroCount++; continue; }
-        bool found = false;
-        for (int k = 0; k < uniqueCount && k < 4; k++) {
-          if (ids[k] == id) { found = true; break; }
-        }
-        if (!found && uniqueCount < 4) {
-          ids[uniqueCount++] = id;
-        }
-      }
-    }
-    // Decode type from center pixel raw value
-    uint32_t rawCenter = 0;
-    {
-      size_t ci2 = static_cast<size_t>(y) * static_cast<size_t>(fbWidth)
-                  + static_cast<size_t>(x);
-      if (ci2 * 4 + 3 < cachedColor.size()) {
-        rawCenter = (static_cast<uint32_t>(cachedColor[ci2*4]) << 24) |
-                    (static_cast<uint32_t>(cachedColor[ci2*4+1]) << 16) |
-                    (static_cast<uint32_t>(cachedColor[ci2*4+2]) << 8)  |
-                    static_cast<uint32_t>(cachedColor[ci2*4+3]);
-      }
-    }
-    int centerType = (rawCenter >> 30) & 0x3;
-    char buf[128];
-    std::snprintf(buf, sizeof(buf), "raw=0x%08x type=%d id=%u unique=%d zero=%d",
-                  rawCenter, centerType, centerId, uniqueCount, zeroCount);
-    ZoneText(buf, std::strlen(buf));
-  }
 
   uint32_t bestId = 0;
   float bestDistSq = static_cast<float>(pickRadius * pickRadius + 1);

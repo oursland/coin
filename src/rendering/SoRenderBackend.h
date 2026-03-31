@@ -220,6 +220,14 @@ public:
   */
   virtual uint32_t pick(int x, int y, int pickRadius = 5) const;
 
+  /// Set the line width used for edge picking in the ID buffer (default 7.0).
+  /// Wider lines make edges easier to pick.
+  virtual void setPickLineWidth(float width);
+  /// Set the point size used for vertex picking in the ID buffer (default 7.0).
+  virtual void setPickPointSize(float size);
+  virtual float getPickLineWidth() const;
+  virtual float getPickPointSize() const;
+
   SbBool isInitialized() const;
 
 protected:

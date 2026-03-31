@@ -18,7 +18,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <inttypes.h>
 #include <string>
 
 #include "rendering/SoVertexLayout.h"
@@ -411,30 +410,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glUniform1f(this->uEmissiveLocation, 1.0f);
 
-  {
-    int hlCount = 0, selCount = 0;
-    for (int i = 0; i < count; ++i) {
-      const SoRenderCommand & c = drawlist.getCommand(i);
-      if (c.selection.highlightElement != -1) {
-        hlCount++;
-        // Log the memory address to see if it's the same command or reused memory
-        ZoneScopedN("hl found");
-        char buf[128];
-        std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d addr=%p topo=%d verts=%u",
-                      i, c.selection.highlightElement, (void*)&c,
-                      (int)c.geometry.topology, c.geometry.vertexCount);
-        ZoneText(buf, std::strlen(buf));
-      }
-      if (!c.selection.selectedElements.empty()) selCount++;
-    }
-    if (hlCount > 0 || selCount > 0) {
-      ZoneScopedN("overlay stats");
-      char buf[64];
-      std::snprintf(buf, sizeof(buf), "hl=%d sel=%d total=%d", hlCount, selCount, count);
-      ZoneText(buf, std::strlen(buf));
-    }
-  }
-
   // Helper: draw a sub-range or whole command for overlay
   auto drawElementRange = [&](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
@@ -470,14 +445,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     bool hasSelection = !cmd.selection.selectedElements.empty();
     if (!hasHighlight && !hasSelection) continue;
 
-    {
-      ZoneScopedN("overlay cmd");
-      char buf[256];
-      std::snprintf(buf, sizeof(buf), "cmd=%d hl=%d sel=%zu id=%.60s topo=%d",
-                    i, hlElem, cmd.selection.selectedElements.size(),
-                    cmd.pick.pickIdentity.c_str(), (int)cmd.geometry.topology);
-      ZoneText(buf, std::strlen(buf));
-    }
     if (!cmd.geometry.positions || posLoc < 0) continue;
 
     SbMat modelMat;
@@ -544,30 +511,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       lastPickLUTSize = lut.size();
       pickBufferDirty = true;
 
-      // Debug: count commands with/without ID color VBOs by topology
-      int faceWithVbo = 0, faceNoVbo = 0;
-      int edgeWithVbo = 0, edgeNoVbo = 0;
-      int pointWithVbo = 0, pointNoVbo = 0;
-      for (int i = 0; i < count; ++i) {
-        const auto & c = drawlist.getCommand(i);
-        bool hasVbo = i < static_cast<int>(pickBuffer->getIdColorVBOCount())
-              && pickBuffer->hasIdColorVBO(i);
-        if (c.geometry.topology == SO_TOPOLOGY_TRIANGLES) {
-          if (hasVbo) faceWithVbo++; else faceNoVbo++;
-        }
-        else if (c.geometry.topology == SO_TOPOLOGY_LINES) {
-          if (hasVbo) edgeWithVbo++; else edgeNoVbo++;
-        }
-        else if (c.geometry.topology == SO_TOPOLOGY_POINTS) {
-          if (hasVbo) pointWithVbo++; else pointNoVbo++;
-        }
-      }
-      std::fprintf(stderr,
-        "ModernGLBackend: LUT=%zu cmds=%d faces=%d/%d edges=%d/%d points=%d/%d (with/noVBO)\n",
-        lut.size(), count,
-        faceWithVbo, faceNoVbo,
-        edgeWithVbo, edgeNoVbo,
-        pointWithVbo, pointNoVbo);
     }
 
     // Only re-render ID buffer when camera moved or LUT changed
@@ -706,4 +649,28 @@ SoModernGLBackend::createShaders()
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
   return TRUE;
+}
+
+void
+SoModernGLBackend::setPickLineWidth(float width)
+{
+  if (pickBuffer) pickBuffer->setPickLineWidth(width);
+}
+
+void
+SoModernGLBackend::setPickPointSize(float size)
+{
+  if (pickBuffer) pickBuffer->setPickPointSize(size);
+}
+
+float
+SoModernGLBackend::getPickLineWidth() const
+{
+  return pickBuffer ? pickBuffer->getPickLineWidth() : 7.0f;
+}
+
+float
+SoModernGLBackend::getPickPointSize() const
+{
+  return pickBuffer ? pickBuffer->getPickPointSize() : 7.0f;
 }
