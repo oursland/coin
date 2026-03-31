@@ -432,22 +432,31 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
   }
 
-  // Helper: draw a face range or whole command
-  auto drawFaceRange = [&](const SoRenderCommand & cmd, int faceIdx, GLenum prim) {
+  // Helper: draw a sub-range or whole command for overlay
+  auto drawElementRange = [&](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
-      if (faceIdx >= 0 && faceIdx < static_cast<int>(cmd.pick.faceStart.size())) {
-        int offset = cmd.pick.faceStart[faceIdx];
-        int cnt = cmd.pick.faceCount[faceIdx];
+      // Indexed geometry (faces, edges): use faceStart/faceCount for sub-range
+      if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.pick.faceStart.size())) {
+        int offset = cmd.pick.faceStart[elemIdx];
+        int cnt = cmd.pick.faceCount[elemIdx];
         glDrawElements(prim, cnt, GL_UNSIGNED_INT,
                        reinterpret_cast<const void *>(
                          static_cast<uintptr_t>(offset * sizeof(uint32_t))));
       }
       else {
+        // Whole body (-2) or out of range
         glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
       }
     }
     else {
-      glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+      // Non-indexed geometry (points): elemIdx is the vertex offset
+      if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.geometry.vertexCount)) {
+        glPointSize(8.0f);  // Larger point for highlighted vertex
+        glDrawArrays(prim, elemIdx, 1);
+      }
+      else {
+        glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+      }
     }
   };
 
@@ -499,7 +508,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       const SbVec4f & sc = cmd.selection.selectionColor;
       glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 0.5f);
       for (int elem : cmd.selection.selectedElements) {
-        drawFaceRange(cmd, elem, prim);
+        drawElementRange(cmd, elem, prim);
       }
     }
 
@@ -507,7 +516,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (hasHighlight) {
       const SbVec4f & hc = cmd.selection.highlightColor;
       glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], 0.6f);
-      drawFaceRange(cmd, hlElem, prim);
+      drawElementRange(cmd, hlElem, prim);
     }
 
     if (posLoc >= 0) glDisableVertexAttribArray(posLoc);
