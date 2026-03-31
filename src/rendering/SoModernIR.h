@@ -48,6 +48,7 @@ enum SoPrimitiveTopology : uint8_t {
 struct SoGeometryDesc {
   SoPrimitiveTopology topology;
   uint32_t            vertexCount;
+  uint32_t            normalCount;   //!< Number of normals (may be < vertexCount for BRep shapes).
   uint32_t            indexCount;
 
   const float *       positions;

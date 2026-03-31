@@ -494,6 +494,7 @@ appendCacheDrawCommands(const SoPrimitiveVertexCache * cache,
   std::memset(&cmd, 0, sizeof(SoRenderCommand));
   cmd.geometry.topology = SO_TOPOLOGY_TRIANGLES;
   cmd.geometry.vertexCount = static_cast<uint32_t>(numverts);
+  cmd.geometry.normalCount = static_cast<uint32_t>(numverts);
   cmd.geometry.indexCount = static_cast<uint32_t>(numtriangles);
   cmd.shaderProgram = SoGLShaderProgramElement::get(state);
 

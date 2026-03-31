@@ -214,12 +214,13 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
                cmd.geometry.vertexCount * stride,
                cmd.geometry.positions, GL_STATIC_DRAW);
 
-  // Normal VBO
-  if (cmd.geometry.normals) {
+  // Normal VBO — may be smaller than position VBO for BRep shapes
+  // (coordinate node includes edge/point vertices that lack normals)
+  if (cmd.geometry.normals && cmd.geometry.normalCount > 0) {
     if (entry.normVBO == 0) glGenBuffers(1, &entry.normVBO);
     glBindBuffer(GL_ARRAY_BUFFER, entry.normVBO);
     glBufferData(GL_ARRAY_BUFFER,
-                 cmd.geometry.vertexCount * stride,
+                 cmd.geometry.normalCount * stride,
                  cmd.geometry.normals, GL_STATIC_DRAW);
   }
 
@@ -624,23 +625,11 @@ SoModernGLBackend::createShaders()
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
-    "mat3 inverse3(mat3 m) {\n"
-    "  float det = dot(m[0], cross(m[1], m[2]));\n"
-    "  if (abs(det) < 1e-10) return mat3(1.0);\n"
-    "  float invDet = 1.0 / det;\n"
-    "  return mat3(\n"
-    "    cross(m[1], m[2]) * invDet,\n"
-    "    cross(m[2], m[0]) * invDet,\n"
-    "    cross(m[0], m[1]) * invDet\n"
-    "  );\n"
-    "}\n"
     "void main() {\n"
     "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
     "  vec4 eyePos = u_view * worldPos;\n"
     "  v_eyePos = eyePos.xyz;\n"
-    "  mat3 mv3 = mat3(u_view) * mat3(u_model);\n"
-    "  mat3 normalMatrix = transpose(inverse3(mv3));\n"
-    "  v_eyeNormal = normalMatrix * a_normal;\n"
+    "  v_eyeNormal = mat3(u_view) * mat3(u_model) * a_normal;\n"
     "  gl_Position = u_proj * eyePos;\n"
     "  v_color = u_color;\n"
     "}\n";
