@@ -135,7 +135,6 @@ public:
   int modernFrameCounter;
   bool drawListValid = false;
   SbBool interactive = FALSE;
-  SbUniqueId lastSceneNodeId = 0;
 #ifdef COIN_USE_BACKTRACE
   struct backtrace_state * btState = nullptr;
 #endif

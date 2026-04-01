@@ -468,10 +468,8 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // Transform/translation change
     }
     else if (!trigger) {
-      // NULL trigger: from auto-clipping or scene load.
-      // Invalidate — the nodeId check in renderModern() will skip
-      // redundant traversals if the scene hasn't actually changed.
-      PRIVATE(self)->drawListValid = false;
+      // NULL trigger: field connection propagation (auto-clipping,
+      // foreground camera connection, etc.). Not structural.
     }
     else {
       // Structural change
@@ -576,19 +574,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   // Only re-traverse the scene graph when something other than the camera changed.
   // Camera-only changes reuse the existing draw list (geometry hasn't changed).
   if (!PRIVATE(this)->drawListValid) {
-    // Double-check: if the scene root's nodeId hasn't changed since
-    // last traversal, the invalidation was from a non-structural change
-    // (auto-clipping, camera field propagation). Skip the re-traversal.
-    if (PRIVATE(this)->lastSceneNodeId != 0 && PRIVATE(this)->scene) {
-      SbUniqueId currentId = PRIVATE(this)->scene->getNodeId();
-      if (currentId == PRIVATE(this)->lastSceneNodeId) {
-        // Scene hasn't changed — re-validate without traversal
-        PRIVATE(this)->drawListValid = true;
-      }
-    }
-  }
-
-  if (!PRIVATE(this)->drawListValid) {
     action->apply(PRIVATE(this)->scene);
 
     // Build sorted render order for correct transparency.
@@ -607,9 +592,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     // Store the scene's nodeId after traversal — used to detect
     // whether subsequent invalidations are from actual scene changes
     // or just auto-clipping/camera field propagation.
-    if (PRIVATE(this)->scene) {
-      PRIVATE(this)->lastSceneNodeId = PRIVATE(this)->scene->getNodeId();
-    }
   }
 
   SoRenderTargetInfo targetinfo = {};
