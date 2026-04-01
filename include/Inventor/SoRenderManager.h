@@ -240,6 +240,16 @@ public:
   /// Clear all preselection highlights in the draw list.
   void clearDrawListHighlight();
 
+  /// Set selection state on a draw list command by pick LUT index.
+  /// @param lutIndex  Pick LUT index (1-based). 0 is invalid.
+  /// @param color     Selection color (RGBA).
+  /// @param append    If true, add to existing selection. If false, replace.
+  bool setDrawListSelection(uint32_t lutIndex, const SbColor4f & color,
+                            SbBool append = TRUE);
+
+  /// Clear all selection state in the draw list.
+  void clearDrawListSelection();
+
   /// Set interactive mode (true during camera orbit/pan/zoom).
   /// When interactive, the backend skips the ID pick buffer to save GPU time.
   void setInteractive(SbBool interactive);

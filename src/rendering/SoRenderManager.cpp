@@ -2031,6 +2031,53 @@ SoRenderManager::clearDrawListHighlight()
   setDrawListHighlight(0, SbColor4f(0, 0, 0, 0));
 }
 
+bool
+SoRenderManager::setDrawListSelection(uint32_t lutIndex, const SbColor4f & color,
+                                      SbBool append)
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action || lutIndex == 0) return false;
+  SoDrawList & drawlist = action->getMutableDrawList();
+  int numCmds = drawlist.getNumCommands();
+
+  if (!append) {
+    // Clear all existing selection
+    for (int i = 0; i < numCmds; i++) {
+      SoRenderCommand & cmd = drawlist.getCommand(i);
+      if (!cmd.selection.selectedElements.empty()) {
+        cmd.selection.selectedElements.clear();
+      }
+    }
+  }
+
+  const auto & lut = drawlist.getPickLUT();
+  if (lutIndex > lut.size()) return false;
+
+  const SoPickLUTEntry & entry = lut[lutIndex - 1];
+  int cmdIdx = entry.commandIndex;
+  if (cmdIdx < 0 || cmdIdx >= numCmds) return false;
+
+  SoRenderCommand & cmd = drawlist.getCommand(cmdIdx);
+  cmd.selection.selectionColor.setValue(color[0], color[1], color[2], color[3]);
+  cmd.selection.selectedElements.push_back(entry.elementIndex);
+  return true;
+}
+
+void
+SoRenderManager::clearDrawListSelection()
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action) return;
+  SoDrawList & drawlist = action->getMutableDrawList();
+  int numCmds = drawlist.getNumCommands();
+  for (int i = 0; i < numCmds; i++) {
+    SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (!cmd.selection.selectedElements.empty()) {
+      cmd.selection.selectedElements.clear();
+    }
+  }
+}
+
 void
 SoRenderManager::setInteractive(SbBool interactive)
 {
