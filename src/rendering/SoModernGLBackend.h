@@ -76,6 +76,10 @@ public:
   /// Access the pick buffer for debug visualization.
   SoIDPickBuffer * getPickBuffer() { return pickBuffer.get(); }
 
+  /// Invalidate the pick buffer's cached pixel data.
+  /// Called when the draw list is rebuilt and old LUT indices are stale.
+  void invalidatePickBuffer() { pickBufferStale = true; }
+
   /// Get cached GPU entry for a command index (for ID pass sharing).
   const CachedGPUCommand * getCachedCommand(int cmdIndex) const;
 
@@ -124,6 +128,7 @@ private:
   // GPU picking
   std::unique_ptr<SoIDPickBuffer> pickBuffer;
   bool pickBufferDirty = true;
+  bool pickBufferStale = false;  // LUT indices in cached pixels are invalid
   uint64_t lastPickLUTGeneration = 0;
 
   // Previous frame's view/proj for camera change detection

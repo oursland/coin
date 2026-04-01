@@ -2017,6 +2017,13 @@ void
 SoRenderManager::invalidateDrawList()
 {
   PRIVATE(this)->drawListValid = false;
+  // Also invalidate the pick buffer — the cached pixel data contains
+  // LUT indices from the old draw list which are no longer valid.
+  SoModernGLBackend * glBackend = dynamic_cast<SoModernGLBackend *>(
+    PRIVATE(this)->modernBackend);
+  if (glBackend) {
+    glBackend->invalidatePickBuffer();
+  }
   this->scheduleRedraw();
 }
 

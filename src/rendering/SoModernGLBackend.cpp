@@ -568,6 +568,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist,
                          vboInfo.data(), count);
       pickBufferDirty = false;
+      pickBufferStale = false;
     }
 
     static int showIdBuffer = -1;
@@ -598,7 +599,7 @@ SoModernGLBackend::resizeTarget(const SoRenderTargetInfo & info)
 uint32_t
 SoModernGLBackend::pick(int x, int y, int pickRadius) const
 {
-  if (!pickBuffer) return 0;
+  if (!pickBuffer || pickBufferStale) return 0;
   return pickBuffer->pick(x, y, pickRadius);
 }
 
