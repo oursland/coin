@@ -435,10 +435,9 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoRenderManager * self = static_cast<SoRenderManager *>(data);
   SoNodeSensor * ns = static_cast<SoNodeSensor *>(sensor);
 
-  // When shape touch is suppressed (during highlight/selection action apply),
-  // don't invalidate the draw list — the visual feedback is handled by
-  // direct draw list mutation, not by re-traversal.
-  if (sorendermanager_suppress_touch) {
+  // When shape touch is suppressed (during highlight/selection action apply)
+  // or during interactive navigation, don't invalidate the draw list.
+  if (sorendermanager_suppress_touch || PRIVATE(self)->interactive) {
     self->scheduleRedraw();
     return;
   }
