@@ -455,6 +455,15 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
     else if (trigger && trigger == PRIVATE(self)->camera) {
       // Camera-only change: geometry unchanged
     }
+    else if (!trigger) {
+      // NULL trigger: field connection propagation (auto-clipping,
+      // foreground lightRotation connection). Not structural.
+      // Scene load and geometry updates are handled by explicit
+      // invalidateDrawList() calls from addViewProvider.
+    }
+    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
+      // Shape touch: selection/highlight context, not geometry
+    }
     else {
       PRIVATE(self)->drawListValid = false;
     }
