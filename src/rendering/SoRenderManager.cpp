@@ -444,37 +444,19 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Log ALL triggers during early frames to understand what fires
-    static int dbgAll = 0;
-    if (dbgAll < 30) {
-      std::fprintf(stderr, "SENSOR: %s trigger=%s%s%s\n",
-        PRIVATE(self)->interactive ? "INTERACTIVE" : "normal",
-        trigger ? trigger->getTypeId().getName().getString() : "NULL",
-        trigger == PRIVATE(self)->camera ? " (CAMERA)" : "",
-        trigger && trigger->isOfType(SoShape::getClassTypeId()) ? " (SHAPE)" : "");
-      dbgAll++;
-    }
-
-    if (PRIVATE(self)->interactive) {
-      // Navigation: just redraw
-    }
-    else if (trigger && trigger == PRIVATE(self)->camera) {
-      // Camera change
-    }
-    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
-      // Shape touch from selection/highlight action
-    }
-    else if (trigger && trigger->isOfType(SoTransformation::getClassTypeId())) {
-      // Transform/translation change
-    }
-    else if (!trigger) {
-      // NULL trigger: field connection propagation (auto-clipping,
-      // foreground camera connection, etc.). Not structural.
-    }
-    else {
-      // Structural change
+    // Only invalidate the draw list for structural scene graph changes
+    // (child add/remove). All other notifications — camera field changes,
+    // selection/highlight shape touches, transform updates, auto-clipping
+    // field propagation (NULL trigger) — just need a redraw.
+    //
+    // Uses getTriggerOperationType() from Coin's notification system to
+    // distinguish structural changes (GROUP_ADDCHILD, GROUP_REMOVECHILD)
+    // from field-only changes (UNSPECIFIED).
+    SoNotRec::OperationType opType = ns->getTriggerOperationType();
+    if (opType == SoNotRec::GROUP_ADDCHILD
+        || opType == SoNotRec::GROUP_REMOVECHILD
+        || opType == SoNotRec::GROUP_REMOVEALLCHILDREN) {
       PRIVATE(self)->drawListValid = false;
-      std::fprintf(stderr, "  -> INVALIDATED\n");
     }
   }
   else {
