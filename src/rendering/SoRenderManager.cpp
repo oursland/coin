@@ -444,9 +444,17 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Modern renderer: only invalidate for actual structural/geometry changes.
-    // Camera, shape, and separator touches (from selection/highlight) just
-    // need a redraw. Interactive mode skips everything.
+    // Log ALL triggers during early frames to understand what fires
+    static int dbgAll = 0;
+    if (dbgAll < 30) {
+      std::fprintf(stderr, "SENSOR: %s trigger=%s%s%s\n",
+        PRIVATE(self)->interactive ? "INTERACTIVE" : "normal",
+        trigger ? trigger->getTypeId().getName().getString() : "NULL",
+        trigger == PRIVATE(self)->camera ? " (CAMERA)" : "",
+        trigger && trigger->isOfType(SoShape::getClassTypeId()) ? " (SHAPE)" : "");
+      dbgAll++;
+    }
+
     if (PRIVATE(self)->interactive) {
       // Navigation: just redraw
     }
@@ -457,18 +465,18 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // Shape touch from selection/highlight action
     }
     else if (trigger && trigger->isOfType(SoTransformation::getClassTypeId())) {
-      // Transform/translation change (e.g., rotation center indicator
-      // during zoom-at-cursor navigation)
+      // Transform/translation change
     }
     else if (!trigger) {
-      // NULL trigger: from auto-clipping (setClippingPlanes modifies camera
-      // near/far via field propagation without a node context) or other
-      // field connections. Not a structural change — just redraw.
-      // Initial scene load is handled by numCommands==0 in renderModern().
+      // NULL trigger: from auto-clipping or scene load.
+      // Invalidate — the nodeId check in renderModern() will skip
+      // redundant traversals if the scene hasn't actually changed.
+      PRIVATE(self)->drawListValid = false;
     }
     else {
-      // Structural change: geometry data, child add/remove, visibility
+      // Structural change
       PRIVATE(self)->drawListValid = false;
+      std::fprintf(stderr, "  -> INVALIDATED\n");
     }
   }
   else {
@@ -567,8 +575,20 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
   // Only re-traverse the scene graph when something other than the camera changed.
   // Camera-only changes reuse the existing draw list (geometry hasn't changed).
-  if (!PRIVATE(this)->drawListValid ||
-      action->getDrawList().getNumCommands() == 0) {
+  if (!PRIVATE(this)->drawListValid) {
+    // Double-check: if the scene root's nodeId hasn't changed since
+    // last traversal, the invalidation was from a non-structural change
+    // (auto-clipping, camera field propagation). Skip the re-traversal.
+    if (PRIVATE(this)->lastSceneNodeId != 0 && PRIVATE(this)->scene) {
+      SbUniqueId currentId = PRIVATE(this)->scene->getNodeId();
+      if (currentId == PRIVATE(this)->lastSceneNodeId) {
+        // Scene hasn't changed — re-validate without traversal
+        PRIVATE(this)->drawListValid = true;
+      }
+    }
+  }
+
+  if (!PRIVATE(this)->drawListValid) {
     action->apply(PRIVATE(this)->scene);
 
     // Build sorted render order for correct transparency.
@@ -583,6 +603,13 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
     action->getMutableDrawList().buildPickLUT();
     PRIVATE(this)->drawListValid = true;
+
+    // Store the scene's nodeId after traversal — used to detect
+    // whether subsequent invalidations are from actual scene changes
+    // or just auto-clipping/camera field propagation.
+    if (PRIVATE(this)->scene) {
+      PRIVATE(this)->lastSceneNodeId = PRIVATE(this)->scene->getNodeId();
+    }
   }
 
   SoRenderTargetInfo targetinfo = {};
