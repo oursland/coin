@@ -461,8 +461,9 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // during zoom-at-cursor navigation)
     }
     else if (!trigger) {
-      // NULL trigger: field connection propagation or sensor without
-      // node context. Not a structural change — just redraw.
+      // NULL trigger — could be initial scene load notification.
+      // Be safe: invalidate.
+      PRIVATE(self)->drawListValid = false;
     }
     else {
       // Structural change: coordinates, child add/remove,
