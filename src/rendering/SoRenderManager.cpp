@@ -72,6 +72,7 @@
 #include <Inventor/nodes/SoGroup.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShape.h>
+#include <Inventor/nodes/SoTransformation.h>
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/details/SoFaceDetail.h>
 #include <Inventor/details/SoLineDetail.h>
@@ -453,9 +454,11 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // Shape touch from selection/highlight action
     }
     else if (trigger && trigger->isOfType(SoSeparator::getClassTypeId())) {
-      // Separator touch (e.g., SoFCUnifiedSelection::touch()) — skip.
-      // Selection code uses scheduleRedraw() for the modern renderer,
-      // so this shouldn't fire. But guard against legacy code paths.
+      // Separator touch (e.g., SoFCUnifiedSelection::touch())
+    }
+    else if (trigger && trigger->isOfType(SoTransformation::getClassTypeId())) {
+      // Transform/translation change (e.g., rotation center indicator
+      // during zoom-at-cursor navigation)
     }
     else {
       // Structural change: coordinates, transforms, child add/remove,
