@@ -70,6 +70,7 @@
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoGroup.h>
+#include <Inventor/nodes/SoShape.h>
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/details/SoFaceDetail.h>
 #include <Inventor/details/SoLineDetail.h>
@@ -104,7 +105,6 @@
 #include "rendering/SoModernIR.h"
 #include "coindefs.h"
 
-static SbBool sorendermanager_suppress_touch = FALSE;
 
 #if COIN_WORKAROUND(COIN_MSVC, <= COIN_MSVC_6_0_VERSION)
 // symbol length truncation
@@ -435,20 +435,34 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoRenderManager * self = static_cast<SoRenderManager *>(data);
   SoNodeSensor * ns = static_cast<SoNodeSensor *>(sensor);
 
-  // When shape touch is suppressed (during highlight/selection action apply)
-  // or during interactive navigation, don't invalidate the draw list.
-  if (sorendermanager_suppress_touch || PRIVATE(self)->interactive) {
+  // During interactive navigation (orbit/pan/zoom), the draw list
+  // geometry doesn't change — just re-render with new camera matrices.
+  if (PRIVATE(self)->interactive) {
     self->scheduleRedraw();
     return;
   }
 
-  // Check if the change came from the camera node only.
-  // If so, the draw list geometry is unchanged — skip re-traversal.
+  // Determine if the draw list needs rebuilding based on what changed.
+  // Camera-only changes and shape-only touches (from selection/highlight
+  // actions) don't alter geometry — they only need a redraw.
+  // Structural changes (coordinates, transforms, child add/remove)
+  // require a full re-traversal.
   SoNode * trigger = ns->getTriggerNode();
-  if (trigger && trigger == PRIVATE(self)->camera) {
-    // Camera-only change: draw list still valid, just re-render
+  if (trigger) {
+    if (trigger == PRIVATE(self)->camera) {
+      // Camera change: draw list geometry unchanged, just re-render
+    }
+    else if (PRIVATE(self)->modernEnabled
+             && trigger->isOfType(SoShape::getClassTypeId())) {
+      // Shape touch during modern render: likely selection/highlight
+      // context change. Geometry unchanged, just re-render.
+    }
+    else {
+      // Structural/geometry change: must re-traverse
+      PRIVATE(self)->drawListValid = false;
+    }
   } else {
-    // Scene structure/geometry changed: must re-traverse
+    // Unknown trigger: be safe, re-traverse
     PRIVATE(self)->drawListValid = false;
   }
   self->scheduleRedraw();
@@ -2090,17 +2104,6 @@ SoRenderManager::isInteractive() const
   return PRIVATE(this)->interactive;
 }
 
-void
-SoRenderManager::setSuppressShapeTouch(SbBool suppress)
-{
-  sorendermanager_suppress_touch = suppress;
-}
-
-SbBool
-SoRenderManager::isSuppressingShapeTouch()
-{
-  return sorendermanager_suppress_touch;
-}
 
 void
 SoRenderManager::setGpuPickLineWidth(float width)

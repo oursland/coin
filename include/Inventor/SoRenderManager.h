@@ -255,11 +255,6 @@ public:
   void setInteractive(SbBool interactive);
   SbBool isInteractive() const;
 
-  /// Suppress shape touch() notifications during selection/highlight actions.
-  /// When true, shapes should skip touch() after context changes to prevent
-  /// the node sensor from invalidating the cached draw list.
-  static void setSuppressShapeTouch(SbBool suppress);
-  static SbBool isSuppressingShapeTouch();
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 
