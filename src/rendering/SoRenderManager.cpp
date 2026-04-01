@@ -550,16 +550,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setViewportRegion(vp);
   action->setCamera(PRIVATE(this)->camera);
 
-  // Detect structural scene graph changes by comparing child count.
-  // The node sensor doesn't invalidate for the modern renderer — all
-  // invalidation is explicit (invalidateDrawList) or detected here.
-  if (PRIVATE(this)->scene && PRIVATE(this)->scene->isOfType(SoGroup::getClassTypeId())) {
-    int currentChildCount = static_cast<SoGroup *>(PRIVATE(this)->scene)->getNumChildren();
-    if (currentChildCount != PRIVATE(this)->lastSceneChildCount) {
-      PRIVATE(this)->drawListValid = false;
-    }
-  }
-
   if (!PRIVATE(this)->drawListValid) {
     action->apply(PRIVATE(this)->scene);
 
@@ -573,12 +563,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
     action->getMutableDrawList().buildPickLUT();
     PRIVATE(this)->drawListValid = true;
-
-    // Store child count after traversal for structural change detection
-    if (PRIVATE(this)->scene && PRIVATE(this)->scene->isOfType(SoGroup::getClassTypeId())) {
-      PRIVATE(this)->lastSceneChildCount =
-        static_cast<SoGroup *>(PRIVATE(this)->scene)->getNumChildren();
-    }
   }
 
   SoRenderTargetInfo targetinfo = {};
