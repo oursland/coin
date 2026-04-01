@@ -463,21 +463,14 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // Transform/translation change (e.g., rotation center indicator
       // during zoom-at-cursor navigation)
     }
+    else if (!trigger) {
+      // NULL trigger: field connection propagation or sensor without
+      // node context. Not a structural change — just redraw.
+    }
     else {
-      // Structural change: coordinates, transforms, child add/remove,
+      // Structural change: coordinates, child add/remove,
       // visibility toggle, initial scene load
       PRIVATE(self)->drawListValid = false;
-      static int dbgCount = 0;
-      if (dbgCount < 10) {
-        std::fprintf(stderr, "\n=== DRAW LIST INVALIDATED ===\n");
-        std::fprintf(stderr, "  trigger type=%s name=%s\n",
-          trigger ? trigger->getTypeId().getName().getString() : "NULL",
-          trigger ? trigger->getName().getString() : "");
-#ifdef COIN_USE_BACKTRACE
-        backtrace_print(PRIVATE(self)->btState, 0, stderr);
-#endif
-        dbgCount++;
-      }
     }
   }
   else {
