@@ -421,12 +421,26 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
     }
 
+    // Polygon offset: push faces back so coplanar edges render on top
+    float oFactor = cmd.state.raster.polygonOffsetFactor;
+    float oUnits = cmd.state.raster.polygonOffsetUnits;
+    bool useOffset = (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)
+                  && (oFactor != 0.0f || oUnits != 0.0f);
+    if (useOffset) {
+      glEnable(GL_POLYGON_OFFSET_FILL);
+      glPolygonOffset(oFactor, oUnits);
+    }
+
     glBindVertexArray(entry.vao);
     if (cmd.geometry.indexCount > 0) {
       glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
     }
     else {
       glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+    }
+
+    if (useOffset) {
+      glDisable(GL_POLYGON_OFFSET_FILL);
     }
   };
 
