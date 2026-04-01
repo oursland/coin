@@ -1929,8 +1929,11 @@ SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) c
   SoPath * path = this->getGpuPickPath(lutIndex);
   if (!path || path->getLength() == 0) return NULL;
 
-  // Validate path nodes aren't null (can happen if draw list was rebuilt
-  // and old command paths have stale entries)
+  // Validate the draw list is valid — if it's been invalidated,
+  // the stored paths may reference freed nodes.
+  if (!PRIVATE(this)->drawListValid) return NULL;
+
+  // Validate path nodes aren't null
   SoFullPath * fullPath = static_cast<SoFullPath *>(path);
   for (int i = 0; i < fullPath->getLength(); i++) {
     if (!fullPath->getNode(i)) return NULL;
