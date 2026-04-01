@@ -138,7 +138,7 @@ SoModernRenderAction::SoModernRenderAction(const SbViewportRegion & vp)
 SoModernRenderAction::~SoModernRenderAction()
 {
   for (auto & kv : this->commandPaths) {
-    if (kv.second) kv.second->unrefNoDelete();
+    if (kv.second) kv.second->unref();
   }
   this->commandPaths.clear();
   delete PRIVATE(this);
@@ -163,10 +163,7 @@ SoModernRenderAction::apply(SoNode * root)
   this->drawlist.clear();
   for (auto & kv : this->commandPaths) {
     if (kv.second) {
-      // Paths may reference nodes that were destroyed between frames.
-      // unrefNoDelete avoids the destructor crash in SoPath::truncate
-      // when scene graph structure changes.
-      kv.second->unrefNoDelete();
+      kv.second->unref();
     }
   }
   this->commandPaths.clear();
