@@ -444,17 +444,20 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Only invalidate the draw list for structural scene graph changes
-    // (child add/remove). All other notifications — camera field changes,
-    // selection/highlight shape touches, transform updates, auto-clipping
-    // field propagation (NULL trigger) — just need a redraw.
-    //
-    // Uses getTriggerOperationType() from Coin's notification system to
-    // distinguish structural changes (GROUP_ADDCHILD, GROUP_REMOVECHILD)
-    // from field-only changes (UNSPECIFIED).
-    // Modern renderer: the node sensor never invalidates the draw list.
-    // Structural change detection is done in renderModern() by comparing
-    // the scene root's child count with the last traversal's count.
+    // Modern renderer: invalidate unless it's a camera-only change
+    // or we're in interactive navigation mode. This catches scene load,
+    // geometry updates, visibility changes, and all structural changes.
+    // Auto-clipping NULL triggers during zoom cause some extra traversals
+    // but that's acceptable (~10% of frames).
+    if (PRIVATE(self)->interactive) {
+      // Navigation: just redraw, no invalidation
+    }
+    else if (trigger && trigger == PRIVATE(self)->camera) {
+      // Camera-only change: geometry unchanged
+    }
+    else {
+      PRIVATE(self)->drawListValid = false;
+    }
   }
   else {
     // Legacy renderer: any non-camera change invalidates
