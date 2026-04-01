@@ -435,35 +435,20 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoRenderManager * self = static_cast<SoRenderManager *>(data);
   SoNodeSensor * ns = static_cast<SoNodeSensor *>(sensor);
 
-  // During interactive navigation (orbit/pan/zoom), the draw list
-  // geometry doesn't change — just re-render with new camera matrices.
-  if (PRIVATE(self)->interactive) {
-    self->scheduleRedraw();
-    return;
-  }
-
-  // Determine if the draw list needs rebuilding based on what changed.
-  // Camera-only changes and shape-only touches (from selection/highlight
-  // actions) don't alter geometry — they only need a redraw.
-  // Structural changes (coordinates, transforms, child add/remove)
-  // require a full re-traversal.
-  SoNode * trigger = ns->getTriggerNode();
-  if (trigger) {
-    if (trigger == PRIVATE(self)->camera) {
-      // Camera change: draw list geometry unchanged, just re-render
-    }
-    else if (PRIVATE(self)->modernEnabled
-             && trigger->isOfType(SoShape::getClassTypeId())) {
-      // Shape touch during modern render: likely selection/highlight
-      // context change. Geometry unchanged, just re-render.
-    }
-    else {
-      // Structural/geometry change: must re-traverse
+  // When the modern renderer is active, the node sensor NEVER
+  // invalidates the draw list. Only explicit invalidateDrawList()
+  // calls trigger re-traversal (from selection changes, scene
+  // structure changes via setSceneGraph, etc.). This prevents
+  // cascading touch() notifications from selection/highlight actions
+  // and camera changes from triggering expensive re-traversals.
+  //
+  // When the modern renderer is NOT active (legacy path), use the
+  // original behavior: any non-camera change invalidates.
+  if (!PRIVATE(self)->modernEnabled) {
+    SoNode * trigger = ns->getTriggerNode();
+    if (!trigger || trigger != PRIVATE(self)->camera) {
       PRIVATE(self)->drawListValid = false;
     }
-  } else {
-    // Unknown trigger: be safe, re-traverse
-    PRIVATE(self)->drawListValid = false;
   }
   self->scheduleRedraw();
 }
