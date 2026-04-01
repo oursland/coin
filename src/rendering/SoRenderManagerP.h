@@ -39,6 +39,10 @@
 
 #include <vector>
 
+#ifdef COIN_USE_BACKTRACE
+#include <backtrace.h>
+#endif
+
 #ifdef COIN_THREADSAFE
 #include <Inventor/threads/SbMutex.h>
 #endif // COIN_THREADSAFE
@@ -131,6 +135,9 @@ public:
   int modernFrameCounter;
   bool drawListValid = false;
   SbBool interactive = FALSE;
+#ifdef COIN_USE_BACKTRACE
+  struct backtrace_state * btState = nullptr;
+#endif
 
   void invokePreRenderCallbacks(void);
   void invokePostRenderCallbacks(void);

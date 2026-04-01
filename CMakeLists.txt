@@ -291,6 +291,16 @@ if(Threads_FOUND)
   #pthreads does not provide pkg-config file, therefore not added here
 endif()
 
+# Optional libbacktrace for debug stack traces
+find_library(BACKTRACE_LIBRARY backtrace)
+find_path(BACKTRACE_INCLUDE_DIR backtrace.h)
+if(BACKTRACE_LIBRARY AND BACKTRACE_INCLUDE_DIR)
+  message(STATUS "Found libbacktrace: ${BACKTRACE_LIBRARY}")
+  list(APPEND COIN_TARGET_LINK_LIBRARIES ${BACKTRACE_LIBRARY})
+  add_definitions(-DCOIN_USE_BACKTRACE)
+  include_directories(${BACKTRACE_INCLUDE_DIR})
+endif()
+
 if(USE_EXTERNAL_EXPAT)
   find_package(EXPAT)
   if(EXPAT_FOUND)

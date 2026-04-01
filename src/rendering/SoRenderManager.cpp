@@ -299,6 +299,9 @@ SoRenderManager::SoRenderManager(void)
   PRIVATE(this)->overlaycolor = SbColor(1.0f, 0.0f, 0.0f).getPackedValue();
   PRIVATE(this)->stereostencilmaskvp = SbViewportRegion(0, 0);
   PRIVATE(this)->modernFrameCounter = 0;
+#ifdef COIN_USE_BACKTRACE
+  PRIVATE(this)->btState = backtrace_create_state(NULL, 0, NULL, NULL);
+#endif
   const char * modernenv = coin_getenv("COIN_USE_MODERN_RENDER");
   if (modernenv && modernenv[0] != '0' && modernenv[0] != '\0') {
     PRIVATE(this)->modernEnabled = TRUE;
@@ -464,6 +467,17 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // Structural change: coordinates, transforms, child add/remove,
       // visibility toggle, initial scene load
       PRIVATE(self)->drawListValid = false;
+      static int dbgCount = 0;
+      if (dbgCount < 10) {
+        std::fprintf(stderr, "\n=== DRAW LIST INVALIDATED ===\n");
+        std::fprintf(stderr, "  trigger type=%s name=%s\n",
+          trigger ? trigger->getTypeId().getName().getString() : "NULL",
+          trigger ? trigger->getName().getString() : "");
+#ifdef COIN_USE_BACKTRACE
+        backtrace_print(PRIVATE(self)->btState, 0, stderr);
+#endif
+        dbgCount++;
+      }
     }
   }
   else {
