@@ -70,6 +70,7 @@
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoGroup.h>
+#include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShape.h>
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/details/SoFaceDetail.h>
@@ -439,9 +440,28 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Modern renderer: the node sensor NEVER invalidates the draw list.
-    // All draw list invalidation is via explicit invalidateDrawList() calls.
-    // The numCommands==0 fallback in renderModern() handles initial load.
+    // Modern renderer: only invalidate for actual structural/geometry changes.
+    // Camera, shape, and separator touches (from selection/highlight) just
+    // need a redraw. Interactive mode skips everything.
+    if (PRIVATE(self)->interactive) {
+      // Navigation: just redraw
+    }
+    else if (trigger && trigger == PRIVATE(self)->camera) {
+      // Camera change
+    }
+    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
+      // Shape touch from selection/highlight action
+    }
+    else if (trigger && trigger->isOfType(SoSeparator::getClassTypeId())) {
+      // Separator touch (e.g., SoFCUnifiedSelection::touch()) — skip.
+      // Selection code uses scheduleRedraw() for the modern renderer,
+      // so this shouldn't fire. But guard against legacy code paths.
+    }
+    else {
+      // Structural change: coordinates, transforms, child add/remove,
+      // visibility toggle, initial scene load
+      PRIVATE(self)->drawListValid = false;
+    }
   }
   else {
     // Legacy renderer: any non-camera change invalidates
