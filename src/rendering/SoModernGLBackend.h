@@ -124,7 +124,7 @@ private:
   // GPU picking
   std::unique_ptr<SoIDPickBuffer> pickBuffer;
   bool pickBufferDirty = true;
-  size_t lastPickLUTSize = 0;
+  uint64_t lastPickLUTGeneration = 0;
 
   // Previous frame's view/proj for camera change detection
   SbMatrix lastViewMatrix;

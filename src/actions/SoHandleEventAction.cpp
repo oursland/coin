@@ -406,8 +406,7 @@ SoHandleEventAction::getPickedPointList(void)
       PRIVATE(this)->gpuPickedPointList.append(pp);  // list takes ownership
       return PRIVATE(this)->gpuPickedPointList;
     }
-    // GPU pick returned no hit — return empty list (no fallback to ray)
-    return PRIVATE(this)->gpuPickedPointList;
+    // GPU pick returned no hit — fall through to legacy ray pick
   }
 
   SoRayPickAction * ra = PRIVATE(this)->getPickAction();

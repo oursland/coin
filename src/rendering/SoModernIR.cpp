@@ -187,6 +187,7 @@ SoDrawList::buildPickLUT()
 {
   ZoneScopedN("buildPickLUT");
   pickLUT.clear();
+  pickLUTGeneration++;
   int numCmds = this->getNumCommands();
 
   for (int ci = 0; ci < numCmds; ci++) {

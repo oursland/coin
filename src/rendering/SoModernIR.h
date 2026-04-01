@@ -296,6 +296,10 @@ public:
   //! Get the sorted rendering order (indices into the command list).
   const std::vector<int> & getSortedOrder() const { return sortedOrder; }
 
+  //! Generation counter — incremented on each buildPickLUT() call.
+  //! Used by the backend to detect when ID color VBOs need rebuilding.
+  uint64_t getPickLUTGeneration() const { return pickLUTGeneration; }
+
   //! Build the pick LUT from the current commands. Each face of BRep
   //! shapes gets a separate entry; edges/points/whole-body get one each.
   void buildPickLUT();
@@ -308,6 +312,7 @@ private:
   SbList<SoRenderCommand> commands;
   std::vector<SoPickLUTEntry> pickLUT;
   std::vector<int> sortedOrder;
+  uint64_t pickLUTGeneration = 0;
 };
 
 /*! Utility helpers declared in SoModernIR.cpp */

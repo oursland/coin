@@ -542,9 +542,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
     pickBuffer->resize(vpSize[0], vpSize[1]);
 
-    if (lut.size() != lastPickLUTSize) {
+    uint64_t lutGen = drawlist.getPickLUTGeneration();
+    if (lutGen != lastPickLUTGeneration) {
       pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
-      lastPickLUTSize = lut.size();
+      lastPickLUTGeneration = lutGen;
       pickBufferDirty = true;
     }
 
