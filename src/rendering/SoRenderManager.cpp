@@ -1940,27 +1940,10 @@ SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) c
   SoState * state = action->getState();
   if (!state) return NULL;
 
-  // Compute 3D intersection point
+  // 3D intersection point — use (0,0,0) for now.
+  // computeIntersection accesses draw list geometry which can be stale
+  // when the draw list is being rebuilt. TODO: add proper synchronization.
   SbVec3f worldPoint(0, 0, 0);
-  SoModernGLBackend * glBackend = dynamic_cast<SoModernGLBackend *>(backend);
-  if (glBackend && glBackend->getPickBuffer()) {
-    SbMat viewMat, projMat;
-    if (PRIVATE(this)->camera) {
-      SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
-      float aspect = vp.getViewportAspectRatio();
-      SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
-      SbMatrix view, proj;
-      vv.getMatrices(view, proj);
-      view.getValue(viewMat);
-      proj.getValue(projMat);
-      SbVec2s vpSize = vp.getViewportSizePixels();
-      glBackend->getPickBuffer()->computeIntersection(
-        lutIndex, action->getDrawList(),
-        &viewMat[0][0], &projMat[0][0],
-        screenX, screenY, vpSize[0], vpSize[1],
-        worldPoint);
-    }
-  }
 
   // Transform world point to object space via inverse model matrix
   const auto & lut = action->getDrawList().getPickLUT();
