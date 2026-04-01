@@ -461,13 +461,13 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // during zoom-at-cursor navigation)
     }
     else if (!trigger) {
-      // NULL trigger — could be initial scene load notification.
-      // Be safe: invalidate.
-      PRIVATE(self)->drawListValid = false;
+      // NULL trigger: from auto-clipping (setClippingPlanes modifies camera
+      // near/far via field propagation without a node context) or other
+      // field connections. Not a structural change — just redraw.
+      // Initial scene load is handled by numCommands==0 in renderModern().
     }
     else {
-      // Structural change: coordinates, child add/remove,
-      // visibility toggle, initial scene load
+      // Structural change: geometry data, child add/remove, visibility
       PRIVATE(self)->drawListValid = false;
     }
   }
