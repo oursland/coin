@@ -295,6 +295,20 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
 }
 
 void
+SoModernGLBackend::clearGPUCache()
+{
+  for (auto & entry : gpuCache) {
+    if (entry.posVBO != 0) {
+      destroyCacheEntry(entry);
+      entry.posKey = nullptr;
+      entry.idxKey = nullptr;
+    }
+  }
+  gpuCache.clear();
+  ptrToCacheIndex.clear();
+}
+
+void
 SoModernGLBackend::gcStaleEntries(int frame)
 {
   // Remove entries unused for 3+ frames

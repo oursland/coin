@@ -2009,6 +2009,7 @@ SoRenderManager::invalidateDrawList()
     PRIVATE(this)->modernBackend);
   if (glBackend) {
     glBackend->invalidatePickBuffer();
+    glBackend->clearGPUCache();
   }
   this->scheduleRedraw();
 }

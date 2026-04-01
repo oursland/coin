@@ -80,6 +80,10 @@ public:
   /// Called when the draw list is rebuilt and old LUT indices are stale.
   void invalidatePickBuffer() { pickBufferStale = true; }
 
+  /// Clear the VBO/VAO cache. Called when the draw list is rebuilt
+  /// to prevent stale cache entries from memory address reuse.
+  void clearGPUCache();
+
   /// Get cached GPU entry for a command index (for ID pass sharing).
   const CachedGPUCommand * getCachedCommand(int cmdIndex) const;
 
