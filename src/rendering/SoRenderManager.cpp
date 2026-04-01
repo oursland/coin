@@ -1998,6 +1998,7 @@ void
 SoRenderManager::invalidateDrawList()
 {
   PRIVATE(this)->drawListValid = false;
+  this->scheduleRedraw();
 }
 
 bool
