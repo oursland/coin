@@ -644,13 +644,11 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Default fallback: build a PV cache via generatePrimitives() and emit
-  // draw commands from it. This works for any shape but is slower than
-  // a dedicated render() override. BRep shapes (SoBrepFaceSet etc.) have
-  // their own overrides and never reach this code.
-  if (!this->ensurePVCache(action)) return;
-  SoModernIR::appendCacheDrawCommands(
-    PRIVATE(this)->pvcache, action, this);
+  // Default: no-op. The generatePrimitives fallback was disabled because
+  // it produces corrupted geometry for some shape types (incorrect PV cache).
+  // BRep shapes have dedicated render() overrides. Other shapes (NaviCube etc.)
+  // render via the legacy superimposition path.
+  (void)action;
 }
 
 // Doc in parent.
