@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -212,7 +213,10 @@ struct SoRenderCommand {
 
 /*!
   \class SoIRBuffer
-  \brief Linear CPU-side scratch buffer used while assembling geometry blobs.
+  \brief Chunk-based CPU scratch allocator for per-frame geometry data.
+
+  Allocations are stable: pointers remain valid until clear() is called.
+  Growth allocates new chunks without moving old data.
 */
 class SoIRBuffer {
 public:
@@ -228,11 +232,17 @@ public:
     return static_cast<T *>(this->allocate(count * sizeof(T), alignment));
   }
 
-  size_t size() const { return this->cursor; }
+  size_t size() const { return this->totalAllocated; }
 
 private:
-  std::vector<uint8_t> storage;
-  size_t cursor;
+  static constexpr size_t MIN_CHUNK_SIZE = 1024 * 1024; // 1 MB
+  struct Chunk {
+    std::vector<uint8_t> data;
+    size_t cursor = 0;
+  };
+  std::vector<std::unique_ptr<Chunk>> chunks;
+  size_t totalAllocated = 0;
+  size_t highWaterMark = 0;  // largest total allocation seen across frames
 };
 
 /*!

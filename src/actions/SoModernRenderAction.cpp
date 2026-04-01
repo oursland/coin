@@ -163,7 +163,7 @@ SoModernRenderAction::apply(SoNode * root)
   this->drawlist.clear();
   for (auto & kv : this->commandPaths) {
     if (kv.second) {
-      kv.second->unref();
+      kv.second->unrefNoDelete();
     }
   }
   this->commandPaths.clear();

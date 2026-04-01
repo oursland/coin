@@ -565,19 +565,24 @@ SoIDPickBuffer::pick(int x, int y, int pickRadius) const
   ZoneScopedN("IDPickBuffer::pick");
   if (!fbo || cachedColor.empty()) return 0;
 
-  int side = 2 * pickRadius + 1;
-  int x0 = std::max(0, x - pickRadius);
-  int y0 = std::max(0, y - pickRadius);
+  // Scale viewport coordinates to ID buffer resolution
+  int sx = static_cast<int>(x * pickScaleX);
+  int sy = static_cast<int>(y * pickScaleY);
+  int sr = std::max(1, static_cast<int>(pickRadius * std::min(pickScaleX, pickScaleY)));
+
+  int side = 2 * sr + 1;
+  int x0 = std::max(0, sx - sr);
+  int y0 = std::max(0, sy - sr);
   int x1 = std::min(fbWidth, x0 + side);
   int y1 = std::min(fbHeight, y0 + side);
   if (x1 <= x0 || y1 <= y0) return 0;
 
-  // Center-priority pick: prefer the non-zero ID closest to (x, y).
-  float cx = static_cast<float>(x);
-  float cy = static_cast<float>(y);
+  // Center-priority pick: prefer the non-zero ID closest to (sx, sy).
+  float cx = static_cast<float>(sx);
+  float cy = static_cast<float>(sy);
 
   uint32_t bestId = 0;
-  float bestDistSq = static_cast<float>(pickRadius * pickRadius + 1);
+  float bestDistSq = static_cast<float>(sr * sr + 1);
 
   for (int py = y0; py < y1; py++) {
     for (int px = x0; px < x1; px++) {

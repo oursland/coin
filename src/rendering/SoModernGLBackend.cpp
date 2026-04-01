@@ -295,20 +295,6 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
 }
 
 void
-SoModernGLBackend::clearGPUCache()
-{
-  for (auto & entry : gpuCache) {
-    if (entry.posVBO != 0) {
-      destroyCacheEntry(entry);
-      entry.posKey = nullptr;
-      entry.idxKey = nullptr;
-    }
-  }
-  gpuCache.clear();
-  ptrToCacheIndex.clear();
-}
-
-void
 SoModernGLBackend::gcStaleEntries(int frame)
 {
   // Remove entries unused for 3+ frames
@@ -554,12 +540,17 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   if (pickBuffer && !interactive && !skipIdBuffer) {
     const auto & lut = drawlist.getPickLUT();
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
-    pickBuffer->resize(vpSize[0], vpSize[1]);
+    // Render ID buffer at half resolution — 4x less fragment work.
+    // Pick radius and line/point sizes still provide adequate coverage.
+    int idW = std::max(1, static_cast<int>(vpSize[0]) / 2);
+    int idH = std::max(1, static_cast<int>(vpSize[1]) / 2);
+    pickBuffer->resize(idW, idH);
+    pickBuffer->setPickScale(static_cast<float>(idW) / vpSize[0],
+                             static_cast<float>(idH) / vpSize[1]);
 
-    uint64_t lutGen = drawlist.getPickLUTGeneration();
-    if (lutGen != lastPickLUTGeneration) {
+    if (lut.size() != lastPickLUTSize) {
       pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
-      lastPickLUTGeneration = lutGen;
+      lastPickLUTSize = lut.size();
       pickBufferDirty = true;
     }
 
@@ -582,7 +573,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist,
                          vboInfo.data(), count);
       pickBufferDirty = false;
-      pickBufferStale = false;
     }
 
     static int showIdBuffer = -1;
@@ -613,7 +603,7 @@ SoModernGLBackend::resizeTarget(const SoRenderTargetInfo & info)
 uint32_t
 SoModernGLBackend::pick(int x, int y, int pickRadius) const
 {
-  if (!pickBuffer || pickBufferStale) return 0;
+  if (!pickBuffer) return 0;
   return pickBuffer->pick(x, y, pickRadius);
 }
 

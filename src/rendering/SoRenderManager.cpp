@@ -2003,16 +2003,6 @@ void
 SoRenderManager::invalidateDrawList()
 {
   PRIVATE(this)->drawListValid = false;
-  // Also invalidate the pick buffer — the cached pixel data contains
-  // LUT indices from the old draw list which are no longer valid.
-  SoModernGLBackend * glBackend = dynamic_cast<SoModernGLBackend *>(
-    PRIVATE(this)->modernBackend);
-  if (glBackend) {
-    glBackend->invalidatePickBuffer();
-    // Don't clear GPU cache here — the VBOs may still be in use by the GPU.
-    // The cache will naturally update on the next render when geometry
-    // pointers change (cache miss → new VBO upload).
-  }
   this->scheduleRedraw();
 }
 

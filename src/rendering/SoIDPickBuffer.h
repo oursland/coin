@@ -95,6 +95,10 @@ public:
 
   SbBool isInitialized() const { return shaderInitialized; }
 
+  /// Set coordinate scale for half-resolution ID buffer.
+  /// pick() will scale input viewport coordinates by these factors.
+  void setPickScale(float sx, float sy) { pickScaleX = sx; pickScaleY = sy; }
+
   /// Set the pick line width for edges in the ID buffer (default 7.0)
   void setPickLineWidth(float w) { pickLineWidth = w; }
   float getPickLineWidth() const { return pickLineWidth; }
@@ -155,6 +159,8 @@ private:
   // Pick dimensions
   float pickLineWidth = 7.0f;
   float pickPointSize = 7.0f;
+  float pickScaleX = 1.0f;
+  float pickScaleY = 1.0f;
 
   // ID pass shader
   uint32_t shaderProgram = 0;

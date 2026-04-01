@@ -25,21 +25,36 @@
 #include <inttypes.h>
 
 SoIRBuffer::SoIRBuffer()
-  : cursor(0)
 {
 }
 
 void
 SoIRBuffer::clear()
 {
-  this->cursor = 0;
+  // Track high-water mark so we can pre-size on next frame
+  if (this->totalAllocated > this->highWaterMark) {
+    this->highWaterMark = this->totalAllocated;
+  }
+  // Reset cursors but keep chunks allocated
+  for (auto & chunk : this->chunks) {
+    chunk->cursor = 0;
+  }
+  this->totalAllocated = 0;
 }
 
 void
 SoIRBuffer::reserve(size_t bytes)
 {
-  if (bytes > this->storage.size()) {
-    this->storage.resize(bytes);
+  // Ensure the first chunk is at least this large
+  if (this->chunks.empty()) {
+    auto c = std::make_unique<Chunk>();
+    c->data.resize(std::max(bytes, MIN_CHUNK_SIZE));
+    this->chunks.push_back(std::move(c));
+  } else if (bytes > this->chunks[0]->data.size()) {
+    // Only resize the first chunk if it hasn't been used yet
+    if (this->chunks[0]->cursor == 0) {
+      this->chunks[0]->data.resize(bytes);
+    }
   }
 }
 
@@ -47,13 +62,27 @@ void *
 SoIRBuffer::allocate(size_t bytes, size_t alignment)
 {
   if (alignment == 0) alignment = 1;
-  size_t alignedCursor = (this->cursor + alignment - 1) & ~(alignment - 1);
-  const size_t required = alignedCursor + bytes;
-  if (required > this->storage.size()) {
-    this->storage.resize(required);
+
+  // Try to allocate from an existing chunk
+  for (auto & chunk : this->chunks) {
+    size_t aligned = (chunk->cursor + alignment - 1) & ~(alignment - 1);
+    if (aligned + bytes <= chunk->data.size()) {
+      void * ptr = chunk->data.data() + aligned;
+      chunk->cursor = aligned + bytes;
+      this->totalAllocated += bytes;
+      return ptr;
+    }
   }
-  void * ptr = this->storage.data() + alignedCursor;
-  this->cursor = required;
+
+  // Need a new chunk — size it to at least fit this allocation
+  // and to avoid many small chunks
+  size_t chunkSize = std::max({bytes, MIN_CHUNK_SIZE, this->highWaterMark / 2});
+  auto c = std::make_unique<Chunk>();
+  c->data.resize(chunkSize);
+  c->cursor = bytes;
+  void * ptr = c->data.data();
+  this->chunks.push_back(std::move(c));
+  this->totalAllocated += bytes;
   return ptr;
 }
 
