@@ -563,6 +563,13 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setCamera(PRIVATE(this)->camera);
 
   if (!PRIVATE(this)->drawListValid) {
+    // Clear the GPU VBO/VAO cache before rebuilding the draw list.
+    // Old shapes may be freed and new shapes allocated at the same
+    // memory addresses (allocator reuse), causing stale cache hits.
+    // This is safe here because we're in the render context (GL active).
+    SoModernGLBackend * glb = dynamic_cast<SoModernGLBackend *>(backend);
+    if (glb) glb->clearGPUCache();
+
     action->apply(PRIVATE(this)->scene);
 
     if (PRIVATE(this)->camera) {
