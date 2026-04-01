@@ -138,7 +138,7 @@ SoModernRenderAction::SoModernRenderAction(const SbViewportRegion & vp)
 SoModernRenderAction::~SoModernRenderAction()
 {
   for (auto & kv : this->commandPaths) {
-    if (kv.second) kv.second->unref();
+    if (kv.second) kv.second->unrefNoDelete();
   }
   this->commandPaths.clear();
   delete PRIVATE(this);
