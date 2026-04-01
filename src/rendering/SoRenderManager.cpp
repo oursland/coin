@@ -439,23 +439,14 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Modern renderer: only invalidate for structural/geometry changes.
-    // Camera changes and shape touches (selection/highlight) just
-    // need a redraw. Interactive mode skips everything.
-    if (PRIVATE(self)->interactive) {
-      // Navigation: just redraw, no invalidation
-    }
-    else if (trigger && trigger == PRIVATE(self)->camera) {
-      // Camera change: geometry unchanged
-    }
-    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
-      // Shape touch: selection/highlight context, not geometry
-    }
-    else {
-      // Structural change (coordinates, transforms, child add/remove,
-      // or initial scene load): must re-traverse
-      PRIVATE(self)->drawListValid = false;
-    }
+    // Modern renderer: the node sensor ONLY schedules redraws.
+    // Draw list invalidation is handled exclusively by explicit
+    // invalidateDrawList() calls (from selection changes, scene
+    // structure changes via setSceneGraph, etc.).
+    //
+    // This prevents ALL node touch cascades from triggering expensive
+    // re-traversals. The draw list is rebuilt only when the application
+    // explicitly requests it.
   }
   else {
     // Legacy renderer: any non-camera change invalidates
