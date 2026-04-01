@@ -10,6 +10,9 @@
 #include "CoinTracyConfig.h"
 
 #include <Inventor/errors/SoDebugError.h>
+#include <Inventor/SbVec3f.h>
+#include <Inventor/SbVec4f.h>
+#include <Inventor/SbMatrix.h>
 #include <Inventor/system/gl.h>
 
 // macOS legacy GL headers provide VAO functions with APPLE suffix
@@ -595,6 +598,145 @@ SoIDPickBuffer::pick(int x, int y, int pickRadius) const
   }
 
   return bestId;
+}
+
+// -----------------------------------------------------------------------
+// Compute intersection
+// -----------------------------------------------------------------------
+
+bool
+SoIDPickBuffer::computeIntersection(uint32_t lutIndex, const SoDrawList & drawlist,
+                                    const float * viewMatrix, const float * projMatrix,
+                                    int pixelX, int pixelY, int vpWidth, int vpHeight,
+                                    SbVec3f & outWorldPoint) const
+{
+  if (lutIndex == 0 || vpWidth <= 0 || vpHeight <= 0) return false;
+  const auto & lut = drawlist.getPickLUT();
+  if (lutIndex > lut.size()) return false;
+
+  const SoPickLUTEntry & entry = lut[lutIndex - 1];
+  int cmdIdx = entry.commandIndex;
+  if (cmdIdx < 0 || cmdIdx >= drawlist.getNumCommands()) return false;
+
+  const SoRenderCommand & cmd = drawlist.getCommand(cmdIdx);
+  if (!cmd.geometry.positions) return false;
+
+  // Build inverse(proj * view) for unprojection
+  SbMatrix view, proj;
+  view = SbMatrix(viewMatrix[0], viewMatrix[1], viewMatrix[2], viewMatrix[3],
+                  viewMatrix[4], viewMatrix[5], viewMatrix[6], viewMatrix[7],
+                  viewMatrix[8], viewMatrix[9], viewMatrix[10], viewMatrix[11],
+                  viewMatrix[12], viewMatrix[13], viewMatrix[14], viewMatrix[15]);
+  proj = SbMatrix(projMatrix[0], projMatrix[1], projMatrix[2], projMatrix[3],
+                  projMatrix[4], projMatrix[5], projMatrix[6], projMatrix[7],
+                  projMatrix[8], projMatrix[9], projMatrix[10], projMatrix[11],
+                  projMatrix[12], projMatrix[13], projMatrix[14], projMatrix[15]);
+
+  SbMatrix vpMat = view * proj;
+  SbMatrix invVP = vpMat.inverse();
+
+  // Unproject pixel to NDC then to world ray
+  float ndcX = (2.0f * pixelX / vpWidth) - 1.0f;
+  float ndcY = (2.0f * pixelY / vpHeight) - 1.0f;
+
+  SbVec3f nearPt, farPt;
+  SbVec4f nearNDC(ndcX, ndcY, -1.0f, 1.0f);
+  SbVec4f farNDC(ndcX, ndcY, 1.0f, 1.0f);
+
+  // Transform by inverse VP
+  // Manual 4x4 * vec4 since SbMatrix doesn't have SbVec4f overload
+  SbMat inv;
+  invVP.getValue(inv);
+  auto mul4 = [&inv](float x, float y, float z, float w) -> SbVec4f {
+    return SbVec4f(
+      inv[0][0]*x + inv[1][0]*y + inv[2][0]*z + inv[3][0]*w,
+      inv[0][1]*x + inv[1][1]*y + inv[2][1]*z + inv[3][1]*w,
+      inv[0][2]*x + inv[1][2]*y + inv[2][2]*z + inv[3][2]*w,
+      inv[0][3]*x + inv[1][3]*y + inv[2][3]*z + inv[3][3]*w);
+  };
+  SbVec4f nearW = mul4(ndcX, ndcY, -1.0f, 1.0f);
+  SbVec4f farW = mul4(ndcX, ndcY, 1.0f, 1.0f);
+
+  if (std::abs(nearW[3]) < 1e-10f || std::abs(farW[3]) < 1e-10f) return false;
+  nearPt = SbVec3f(nearW[0]/nearW[3], nearW[1]/nearW[3], nearW[2]/nearW[3]);
+  farPt = SbVec3f(farW[0]/farW[3], farW[1]/farW[3], farW[2]/farW[3]);
+
+  SbVec3f rayOrigin = nearPt;
+  SbVec3f rayDir = farPt - nearPt;
+  rayDir.normalize();
+
+  // Get the model matrix for this command
+  SbMat modelMat;
+  cmd.modelMatrix.getValue(modelMat);
+  SbMatrix model(modelMat);
+
+  uint32_t stride = cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3;
+
+  // For faces: intersect triangles in the element's EBO range
+  if (entry.elementType == SO_PICK_FACE && cmd.geometry.indices &&
+      entry.eboCount >= 3) {
+    int start = entry.eboOffset;
+    int end = std::min(start + entry.eboCount, static_cast<int>(cmd.geometry.indexCount));
+
+    float bestT = 1e30f;
+    bool hit = false;
+
+    for (int i = start; i + 2 < end; i += 3) {
+      uint32_t i0 = cmd.geometry.indices[i];
+      uint32_t i1 = cmd.geometry.indices[i + 1];
+      uint32_t i2 = cmd.geometry.indices[i + 2];
+
+      auto getVert = [&](uint32_t idx) -> SbVec3f {
+        const float * p = reinterpret_cast<const float *>(
+          reinterpret_cast<const char *>(cmd.geometry.positions) + idx * stride);
+        SbVec3f objPt(p[0], p[1], p[2]);
+        SbVec3f worldPt;
+        model.multVecMatrix(objPt, worldPt);
+        return worldPt;
+      };
+
+      SbVec3f v0 = getVert(i0), v1 = getVert(i1), v2 = getVert(i2);
+
+      // Möller-Trumbore ray-triangle intersection
+      SbVec3f e1 = v1 - v0, e2 = v2 - v0;
+      SbVec3f h = rayDir.cross(e2);
+      float a = e1.dot(h);
+      if (std::abs(a) < 1e-10f) continue;
+      float f = 1.0f / a;
+      SbVec3f s = rayOrigin - v0;
+      float u = f * s.dot(h);
+      if (u < 0.0f || u > 1.0f) continue;
+      SbVec3f q = s.cross(e1);
+      float v = f * rayDir.dot(q);
+      if (v < 0.0f || u + v > 1.0f) continue;
+      float t = f * e2.dot(q);
+      if (t > 1e-6f && t < bestT) {
+        bestT = t;
+        outWorldPoint = rayOrigin + rayDir * t;
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
+  // For edges/vertices: use the element's position directly
+  if ((entry.elementType == SO_PICK_EDGE || entry.elementType == SO_PICK_VERTEX)
+      && cmd.geometry.positions) {
+    // Use the first vertex of the element as the intersection point
+    uint32_t vertIdx = 0;
+    if (cmd.geometry.indices && entry.eboOffset < static_cast<int>(cmd.geometry.indexCount)) {
+      vertIdx = cmd.geometry.indices[entry.eboOffset];
+    } else if (entry.eboOffset >= 0) {
+      vertIdx = static_cast<uint32_t>(entry.eboOffset);
+    }
+    const float * p = reinterpret_cast<const float *>(
+      reinterpret_cast<const char *>(cmd.geometry.positions) + vertIdx * stride);
+    SbVec3f objPt(p[0], p[1], p[2]);
+    model.multVecMatrix(objPt, outWorldPoint);
+    return true;
+  }
+
+  return false;
 }
 
 // -----------------------------------------------------------------------

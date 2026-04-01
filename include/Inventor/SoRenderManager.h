@@ -48,6 +48,7 @@ class SoNode;
 class SoCamera;
 class SoNodeSensor;
 class SoOneShotSensor;
+class SoPickedPoint;
 class SoSensor;
 class SoRenderManagerP;
 
@@ -209,6 +210,13 @@ public:
   /// Get the element type for a pick LUT entry.
   /// Returns: 0=face, 1=edge, 2=vertex, 3=whole_body, -1=invalid
   int getGpuPickElementType(uint32_t lutIndex) const;
+
+  /// Assemble a complete SoPickedPoint from the GPU ID buffer pick.
+  /// Returns a newly allocated SoPickedPoint with the correct path, detail,
+  /// and 3D intersection point — identical to what SoRayPickAction produces.
+  /// Returns NULL for no hit. Caller owns the returned pointer.
+  SoPickedPoint * assemblePickedPoint(int screenX, int screenY,
+                                      int pickRadius = 5) const;
 
   /// Set/get the line width for edge picking in the ID buffer.
   /// Wider lines make edges easier to select. Default 7.0.

@@ -59,6 +59,9 @@
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/actions/SoRayPickAction.h>
 #include <Inventor/misc/SoState.h>
+#include <Inventor/SoPickedPoint.h>
+#include <Inventor/lists/SoPickedPointList.h>
+#include <Inventor/SoRenderManager.h>
 
 #include "actions/SoSubActionP.h"
 
@@ -76,6 +79,7 @@ public:
     , didpickall(FALSE)
     , pickaction(NULL)
     , owner(NULL)
+    , renderManager(NULL)
   { }
   ~SoHandleEventActionP()
   {
@@ -99,6 +103,10 @@ public:
   SoRayPickAction * pickaction;
 
   SoHandleEventAction * owner;
+
+  // GPU pick support
+  SoRenderManager * renderManager;
+  SoPickedPointList gpuPickedPointList;  // Owns GPU-allocated picked points
 };
 
 #define PRIVATE(obj) ((obj)->pimpl)
@@ -337,12 +345,39 @@ SoHandleEventAction::getPickRadius(void) const
 }
 
 /*!
+  Set the render manager for GPU-accelerated picking.
+*/
+void
+SoHandleEventAction::setRenderManager(SoRenderManager * manager)
+{
+  PRIVATE(this)->renderManager = manager;
+}
+
+/*!
   Returns the SoPickedPoint information for the intersection point
   below the cursor.
 */
 const SoPickedPoint *
 SoHandleEventAction::getPickedPoint(void)
 {
+  // Try GPU pick first when modern renderer is active
+  if (PRIVATE(this)->renderManager &&
+      PRIVATE(this)->renderManager->isModernRenderEnabled() &&
+      PRIVATE(this)->event) {
+    SbVec2s pos = PRIVATE(this)->event->getPosition();
+    float radius = this->getPickRadius();
+    // Clear old GPU picks (list owns and frees them)
+    PRIVATE(this)->gpuPickedPointList.truncate(0);
+    SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
+      pos[0], pos[1], static_cast<int>(radius));
+    if (pp) {
+      PRIVATE(this)->gpuPickedPointList.append(pp);  // list takes ownership
+      return pp;
+    }
+    // GPU pick returned no hit — fall through to ray pick
+  }
+
+  // Legacy ray pick fallback
   SoRayPickAction * ra = PRIVATE(this)->getPickAction();
   if (!PRIVATE(this)->pickvalid || PRIVATE(this)->didpickall) {
     ra->setPickAll(FALSE);
@@ -357,6 +392,24 @@ SoHandleEventAction::getPickedPoint(void)
 const SoPickedPointList &
 SoHandleEventAction::getPickedPointList(void)
 {
+  // Try GPU pick first when modern renderer is active
+  if (PRIVATE(this)->renderManager &&
+      PRIVATE(this)->renderManager->isModernRenderEnabled() &&
+      PRIVATE(this)->event) {
+    SbVec2s pos = PRIVATE(this)->event->getPosition();
+    float radius = this->getPickRadius();
+    SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
+      pos[0], pos[1], static_cast<int>(radius));
+    // Clear old GPU picks (list owns and frees them)
+    PRIVATE(this)->gpuPickedPointList.truncate(0);
+    if (pp) {
+      PRIVATE(this)->gpuPickedPointList.append(pp);  // list takes ownership
+      return PRIVATE(this)->gpuPickedPointList;
+    }
+    // GPU pick returned no hit — return empty list (no fallback to ray)
+    return PRIVATE(this)->gpuPickedPointList;
+  }
+
   SoRayPickAction * ra = PRIVATE(this)->getPickAction();
   if (!PRIVATE(this)->pickvalid || !PRIVATE(this)->didpickall) {
     ra->setPickAll(TRUE);

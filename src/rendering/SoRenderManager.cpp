@@ -70,6 +70,10 @@
 #include <Inventor/nodes/SoInfo.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoGroup.h>
+#include <Inventor/SoPickedPoint.h>
+#include <Inventor/details/SoFaceDetail.h>
+#include <Inventor/details/SoLineDetail.h>
+#include <Inventor/details/SoPointDetail.h>
 #include <Inventor/elements/SoDrawStyleElement.h>
 #include <Inventor/elements/SoComplexityTypeElement.h>
 #include <Inventor/elements/SoPolygonOffsetElement.h>
@@ -1882,6 +1886,97 @@ SoRenderManager::getGpuPickElementType(uint32_t lutIndex) const
   const auto & lut = action->getDrawList().getPickLUT();
   if (lutIndex > lut.size()) return -1;
   return static_cast<int>(lut[lutIndex - 1].elementType);
+}
+
+SoPickedPoint *
+SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) const
+{
+  SoRenderBackend * backend = PRIVATE(this)->modernBackend;
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!backend || !action) return NULL;
+
+  uint32_t lutIndex = backend->pick(screenX, screenY, pickRadius);
+  if (lutIndex == 0) return NULL;
+
+  // Get stored path
+  SoPath * path = this->getGpuPickPath(lutIndex);
+  if (!path) return NULL;
+
+  // Get action state (needed for SoPickedPoint constructor)
+  SoState * state = action->getState();
+  if (!state) return NULL;
+
+  // Compute 3D intersection point
+  SbVec3f worldPoint(0, 0, 0);
+  SoModernGLBackend * glBackend = dynamic_cast<SoModernGLBackend *>(backend);
+  if (glBackend && glBackend->getPickBuffer()) {
+    SbMat viewMat, projMat;
+    if (PRIVATE(this)->camera) {
+      SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
+      float aspect = vp.getViewportAspectRatio();
+      SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
+      SbMatrix view, proj;
+      vv.getMatrices(view, proj);
+      view.getValue(viewMat);
+      proj.getValue(projMat);
+      SbVec2s vpSize = vp.getViewportSizePixels();
+      glBackend->getPickBuffer()->computeIntersection(
+        lutIndex, action->getDrawList(),
+        &viewMat[0][0], &projMat[0][0],
+        screenX, screenY, vpSize[0], vpSize[1],
+        worldPoint);
+    }
+  }
+
+  // Transform world point to object space via inverse model matrix
+  const auto & lut = action->getDrawList().getPickLUT();
+  const SoPickLUTEntry & entry = lut[lutIndex - 1];
+  int cmdIdx = entry.commandIndex;
+  SbVec3f objPoint = worldPoint;
+  if (cmdIdx >= 0 && cmdIdx < action->getDrawList().getNumCommands()) {
+    SbMatrix modelInv = action->getDrawList().getCommand(cmdIdx).modelMatrix.inverse();
+    modelInv.multVecMatrix(worldPoint, objPoint);
+  }
+
+  // Construct SoPickedPoint
+  SoPickedPoint * pp = new SoPickedPoint(path, state, objPoint);
+
+  // Create and set detail based on element type
+  SoDetail * detail = NULL;
+  switch (entry.elementType) {
+  case SO_PICK_FACE: {
+    SoFaceDetail * fd = new SoFaceDetail;
+    fd->setPartIndex(entry.elementIndex);
+    detail = fd;
+    break;
+  }
+  case SO_PICK_EDGE: {
+    SoLineDetail * ld = new SoLineDetail;
+    ld->setLineIndex(entry.elementIndex);
+    detail = ld;
+    break;
+  }
+  case SO_PICK_VERTEX: {
+    SoPointDetail * pd = new SoPointDetail;
+    pd->setCoordinateIndex(entry.elementIndex);
+    detail = pd;
+    break;
+  }
+  default:
+    break;
+  }
+
+  if (detail) {
+    SoFullPath * fullPath = static_cast<SoFullPath *>(path);
+    if (fullPath->getLength() > 0) {
+      pp->setDetail(detail, fullPath->getTail());
+    }
+    else {
+      delete detail;
+    }
+  }
+
+  return pp;
 }
 
 void

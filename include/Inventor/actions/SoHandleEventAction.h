@@ -42,6 +42,7 @@ class SoPickedPoint;
 class SoPickedPointList;
 
 class SoHandleEventActionP;
+class SoRenderManager;
 
 class COIN_DLL_API SoHandleEventAction : public SoAction {
   typedef SoAction inherited;
@@ -69,6 +70,11 @@ public:
   float getPickRadius(void) const;
   const SoPickedPoint * getPickedPoint(void);
   const SoPickedPointList & getPickedPointList(void);
+
+  /// Set the render manager for GPU-accelerated picking.
+  /// When set and the modern renderer is active, getPickedPoint()
+  /// uses the ID buffer instead of SoRayPickAction traversal.
+  void setRenderManager(SoRenderManager * manager);
 
 protected:
   virtual void beginTraversal(SoNode * node);

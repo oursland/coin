@@ -75,6 +75,24 @@ public:
   /// Reads from CPU cache — no GL calls, safe from any thread.
   uint32_t pick(int x, int y, int pickRadius = 5) const;
 
+  /// Compute the 3D intersection point for a picked element.
+  /// Casts a ray from the camera through (pixelX, pixelY) and intersects
+  /// the identified triangle/edge. Returns the object-space point.
+  /// @param lutIndex   Pick LUT index (1-based)
+  /// @param drawlist   Draw list with geometry data
+  /// @param viewMatrix Column-major 4x4 view matrix
+  /// @param projMatrix Column-major 4x4 projection matrix
+  /// @param pixelX     Pixel X coordinate
+  /// @param pixelY     Pixel Y coordinate
+  /// @param vpWidth    Viewport width in pixels
+  /// @param vpHeight   Viewport height in pixels
+  /// @param outWorldPoint  Output: world-space intersection point
+  /// @return true if intersection was found
+  bool computeIntersection(uint32_t lutIndex, const SoDrawList & drawlist,
+                           const float * viewMatrix, const float * projMatrix,
+                           int pixelX, int pixelY, int vpWidth, int vpHeight,
+                           SbVec3f & outWorldPoint) const;
+
   SbBool isInitialized() const { return shaderInitialized; }
 
   /// Set the pick line width for edges in the ID buffer (default 7.0)
