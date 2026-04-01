@@ -1925,9 +1925,16 @@ SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) c
   uint32_t lutIndex = backend->pick(screenX, screenY, pickRadius);
   if (lutIndex == 0) return NULL;
 
-  // Get stored path
+  // Get stored path — verify it's valid (not stale from a previous traversal)
   SoPath * path = this->getGpuPickPath(lutIndex);
-  if (!path) return NULL;
+  if (!path || path->getLength() == 0) return NULL;
+
+  // Validate path nodes aren't null (can happen if draw list was rebuilt
+  // and old command paths have stale entries)
+  SoFullPath * fullPath = static_cast<SoFullPath *>(path);
+  for (int i = 0; i < fullPath->getLength(); i++) {
+    if (!fullPath->getNode(i)) return NULL;
+  }
 
   // Get action state (needed for SoPickedPoint constructor)
   SoState * state = action->getState();
