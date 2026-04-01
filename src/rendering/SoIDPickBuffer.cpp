@@ -686,6 +686,10 @@ SoIDPickBuffer::computeIntersection(uint32_t lutIndex, const SoDrawList & drawli
       uint32_t i1 = cmd.geometry.indices[i + 1];
       uint32_t i2 = cmd.geometry.indices[i + 2];
 
+      // Bounds check vertex indices
+      if (i0 >= cmd.geometry.vertexCount || i1 >= cmd.geometry.vertexCount
+          || i2 >= cmd.geometry.vertexCount) continue;
+
       auto getVert = [&](uint32_t idx) -> SbVec3f {
         const float * p = reinterpret_cast<const float *>(
           reinterpret_cast<const char *>(cmd.geometry.positions) + idx * stride);
