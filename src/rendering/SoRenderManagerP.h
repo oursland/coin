@@ -135,6 +135,7 @@ public:
   int modernFrameCounter;
   bool drawListValid = false;
   SbBool interactive = FALSE;
+  int lastSceneChildCount = -1;  // Track structural changes via child count
 #ifdef COIN_USE_BACKTRACE
   struct backtrace_state * btState = nullptr;
 #endif

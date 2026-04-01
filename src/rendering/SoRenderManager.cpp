@@ -452,12 +452,9 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
     // Uses getTriggerOperationType() from Coin's notification system to
     // distinguish structural changes (GROUP_ADDCHILD, GROUP_REMOVECHILD)
     // from field-only changes (UNSPECIFIED).
-    SoNotRec::OperationType opType = ns->getTriggerOperationType();
-    if (opType == SoNotRec::GROUP_ADDCHILD
-        || opType == SoNotRec::GROUP_REMOVECHILD
-        || opType == SoNotRec::GROUP_REMOVEALLCHILDREN) {
-      PRIVATE(self)->drawListValid = false;
-    }
+    // Modern renderer: the node sensor never invalidates the draw list.
+    // Structural change detection is done in renderModern() by comparing
+    // the scene root's child count with the last traversal's count.
   }
   else {
     // Legacy renderer: any non-camera change invalidates
@@ -553,13 +550,19 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setViewportRegion(vp);
   action->setCamera(PRIVATE(this)->camera);
 
-  // Only re-traverse the scene graph when something other than the camera changed.
-  // Camera-only changes reuse the existing draw list (geometry hasn't changed).
+  // Detect structural scene graph changes by comparing child count.
+  // The node sensor doesn't invalidate for the modern renderer — all
+  // invalidation is explicit (invalidateDrawList) or detected here.
+  if (PRIVATE(this)->scene && PRIVATE(this)->scene->isOfType(SoGroup::getClassTypeId())) {
+    int currentChildCount = static_cast<SoGroup *>(PRIVATE(this)->scene)->getNumChildren();
+    if (currentChildCount != PRIVATE(this)->lastSceneChildCount) {
+      PRIVATE(this)->drawListValid = false;
+    }
+  }
+
   if (!PRIVATE(this)->drawListValid) {
     action->apply(PRIVATE(this)->scene);
 
-    // Build sorted render order for correct transparency.
-    // This builds an index array — commands stay in place for stable pick LUT indices.
     if (PRIVATE(this)->camera) {
       float aspect = vp.getViewportAspectRatio();
       SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
@@ -571,9 +574,11 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     action->getMutableDrawList().buildPickLUT();
     PRIVATE(this)->drawListValid = true;
 
-    // Store the scene's nodeId after traversal — used to detect
-    // whether subsequent invalidations are from actual scene changes
-    // or just auto-clipping/camera field propagation.
+    // Store child count after traversal for structural change detection
+    if (PRIVATE(this)->scene && PRIVATE(this)->scene->isOfType(SoGroup::getClassTypeId())) {
+      PRIVATE(this)->lastSceneChildCount =
+        static_cast<SoGroup *>(PRIVATE(this)->scene)->getNumChildren();
+    }
   }
 
   SoRenderTargetInfo targetinfo = {};
