@@ -104,6 +104,8 @@
 #include "rendering/SoModernIR.h"
 #include "coindefs.h"
 
+static SbBool sorendermanager_suppress_touch = FALSE;
+
 #if COIN_WORKAROUND(COIN_MSVC, <= COIN_MSVC_6_0_VERSION)
 // symbol length truncation
 #pragma warning(disable:4786)
@@ -432,6 +434,14 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
 #endif // debug
   SoRenderManager * self = static_cast<SoRenderManager *>(data);
   SoNodeSensor * ns = static_cast<SoNodeSensor *>(sensor);
+
+  // When shape touch is suppressed (during highlight/selection action apply),
+  // don't invalidate the draw list — the visual feedback is handled by
+  // direct draw list mutation, not by re-traversal.
+  if (sorendermanager_suppress_touch) {
+    self->scheduleRedraw();
+    return;
+  }
 
   // Check if the change came from the camera node only.
   // If so, the draw list geometry is unchanged — skip re-traversal.
@@ -2032,6 +2042,18 @@ SbBool
 SoRenderManager::isInteractive() const
 {
   return PRIVATE(this)->interactive;
+}
+
+void
+SoRenderManager::setSuppressShapeTouch(SbBool suppress)
+{
+  sorendermanager_suppress_touch = suppress;
+}
+
+SbBool
+SoRenderManager::isSuppressingShapeTouch()
+{
+  return sorendermanager_suppress_touch;
 }
 
 void
