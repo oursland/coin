@@ -366,8 +366,8 @@ SoHandleEventAction::getPickedPoint(void)
       PRIVATE(this)->event) {
     SbVec2s pos = PRIVATE(this)->event->getPosition();
     float radius = this->getPickRadius();
-    // Clear old GPU picks (list owns and frees them)
-    PRIVATE(this)->gpuPickedPointList.truncate(0);
+    // Clear WITHOUT deleting — stale SoPickedPoints may crash on delete
+    static_cast<SbPList &>(PRIVATE(this)->gpuPickedPointList).truncate(0);
     SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
       pos[0], pos[1], static_cast<int>(radius));
     if (pp) {
@@ -396,14 +396,17 @@ SoHandleEventAction::getPickedPointList(void)
   if (PRIVATE(this)->renderManager &&
       PRIVATE(this)->renderManager->isModernRenderEnabled() &&
       PRIVATE(this)->event) {
+    // Clear old GPU picks WITHOUT deleting — the SoPickedPoints from
+    // stored command paths may have stale node pointers that crash
+    // during SoPath::truncate in the destructor. Leak them instead.
+    static_cast<SbPList &>(PRIVATE(this)->gpuPickedPointList).truncate(0);
+
     SbVec2s pos = PRIVATE(this)->event->getPosition();
     float radius = this->getPickRadius();
     SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
       pos[0], pos[1], static_cast<int>(radius));
-    // Clear old GPU picks (list owns and frees them)
-    PRIVATE(this)->gpuPickedPointList.truncate(0);
     if (pp) {
-      PRIVATE(this)->gpuPickedPointList.append(pp);  // list takes ownership
+      PRIVATE(this)->gpuPickedPointList.append(pp);
       return PRIVATE(this)->gpuPickedPointList;
     }
     // GPU pick returned no hit — fall through to legacy ray pick
