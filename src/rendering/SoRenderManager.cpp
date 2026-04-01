@@ -456,9 +456,6 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
     else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
       // Shape touch from selection/highlight action
     }
-    else if (trigger && trigger->isOfType(SoSeparator::getClassTypeId())) {
-      // Separator touch (e.g., SoFCUnifiedSelection::touch())
-    }
     else if (trigger && trigger->isOfType(SoTransformation::getClassTypeId())) {
       // Transform/translation change (e.g., rotation center indicator
       // during zoom-at-cursor navigation)
