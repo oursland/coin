@@ -414,17 +414,38 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
                 diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
-    if (prim == GL_POINTS) {
+
+    // Wireframe draw style: render triangles as lines
+    uint8_t fillMode = cmd.state.raster.fillMode;
+    if (fillMode == 1 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    }
+    else if (fillMode == 2 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+    }
+
+    if (prim == GL_POINTS || fillMode == 2) {
       glPointSize(std::max(cmd.state.raster.lineWidth, 4.0f));
     }
-    else if (prim == GL_LINES || prim == GL_LINE_STRIP) {
+    if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
       glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
+    }
+
+    // Line stipple pattern (dashed/dotted lines)
+    uint16_t pattern = cmd.state.raster.linePattern;
+    bool useStipple = (pattern != 0 && pattern != 0xFFFF)
+                   && (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1);
+    if (useStipple) {
+      glEnable(GL_LINE_STIPPLE);
+      glLineStipple(std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1),
+                    static_cast<GLushort>(pattern));
     }
 
     // Polygon offset: push faces back so coplanar edges render on top
     float oFactor = cmd.state.raster.polygonOffsetFactor;
     float oUnits = cmd.state.raster.polygonOffsetUnits;
     bool useOffset = (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)
+                  && fillMode == 0
                   && (oFactor != 0.0f || oUnits != 0.0f);
     if (useOffset) {
       glEnable(GL_POLYGON_OFFSET_FILL);
@@ -441,6 +462,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     if (useOffset) {
       glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    if (useStipple) {
+      glDisable(GL_LINE_STIPPLE);
+    }
+    if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
   };
 

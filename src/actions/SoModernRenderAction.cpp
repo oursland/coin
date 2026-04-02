@@ -23,6 +23,7 @@
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
 #include <Inventor/elements/SoViewVolumeElement.h>
+#include <Inventor/elements/SoLinePatternElement.h>
 #include <Inventor/elements/SoMultiTextureImageElement.h>
 #include <Inventor/elements/SoMultiTextureMatrixElement.h>
 #include <Inventor/elements/SoCoordinateElement.h>
@@ -89,6 +90,7 @@ SoModernRenderAction::initClass(void)
   SO_ENABLE(SoModernRenderAction, SoViewVolumeElement);
   SO_ENABLE(SoModernRenderAction, SoMultiTextureImageElement);
   SO_ENABLE(SoModernRenderAction, SoMultiTextureMatrixElement);
+  SO_ENABLE(SoModernRenderAction, SoLinePatternElement);
   SO_ENABLE(SoModernRenderAction, SoOverrideElement);
   SO_ENABLE(SoModernRenderAction, SoModelMatrixElement);
   SO_ENABLE(SoModernRenderAction, SoLazyElement);
@@ -143,10 +145,6 @@ SoModernRenderAction::SoModernRenderAction(const SbViewportRegion & vp)
 
 SoModernRenderAction::~SoModernRenderAction()
 {
-  for (auto & kv : this->commandPaths) {
-    if (kv.second) kv.second->unrefNoDelete();
-  }
-  this->commandPaths.clear();
   delete PRIVATE(this);
   PRIVATE(this) = NULL;
 }
@@ -167,12 +165,6 @@ void
 SoModernRenderAction::apply(SoNode * root)
 {
   this->drawlist.clear();
-  for (auto & kv : this->commandPaths) {
-    if (kv.second) {
-      kv.second->unrefNoDelete();
-    }
-  }
-  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(root);
 }
@@ -180,17 +172,14 @@ SoModernRenderAction::apply(SoNode * root)
 void
 SoModernRenderAction::storeCommandPath(int commandIndex, const SoPath * path)
 {
-  if (!path) return;
-  SoPath * copy = path->copy();
-  copy->ref();
-  this->commandPaths[commandIndex] = copy;
+  (void)commandIndex;
+  (void)path;
 }
 
 SoPath *
 SoModernRenderAction::getCommandPath(int commandIndex) const
 {
-  auto it = this->commandPaths.find(commandIndex);
-  if (it != this->commandPaths.end()) return it->second;
+  (void)commandIndex;
   return nullptr;
 }
 
@@ -198,10 +187,6 @@ void
 SoModernRenderAction::apply(SoPath * path)
 {
   this->drawlist.clear();
-  for (auto & kv : this->commandPaths) {
-    if (kv.second) kv.second->unrefNoDelete();
-  }
-  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(path);
 }
@@ -210,10 +195,6 @@ void
 SoModernRenderAction::apply(const SoPathList & pathlist, SbBool obeysrules)
 {
   this->drawlist.clear();
-  for (auto & kv : this->commandPaths) {
-    if (kv.second) kv.second->unrefNoDelete();
-  }
-  this->commandPaths.clear();
   this->resetFrameResources();
   inherited::apply(pathlist, obeysrules);
 }

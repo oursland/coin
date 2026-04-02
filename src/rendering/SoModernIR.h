@@ -118,10 +118,12 @@ struct SoBlendState {
   \brief Rasterizer properties (fill mode, culling, polygon offset).
 */
 struct SoRasterState {
-  uint8_t fillMode;
+  uint8_t fillMode;         // 0=filled, 1=lines (wireframe), 2=points
   uint8_t cullMode;
   SbBool  scissorEnabled;
   float   lineWidth;
+  uint16_t linePattern;     // GL line stipple pattern (0xFFFF = solid)
+  int16_t  linePatternScale; // GL line stipple repeat factor
   float   polygonOffsetFactor;
   float   polygonOffsetUnits;
 };

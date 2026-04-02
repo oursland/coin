@@ -11,7 +11,6 @@
 #include <Inventor/rendering/SoModernIR.h>
 
 #include <cstddef>
-#include <unordered_map>
 
 class SoPath;
 class SoPathList;
@@ -92,7 +91,6 @@ private:
   SoCamera *       camera;
 
   SoDrawList       drawlist;
-  std::unordered_map<int, SoPath *> commandPaths;  //!< ref'd paths per command index
   SoModernRenderActionP * pimpl;
 };
 
