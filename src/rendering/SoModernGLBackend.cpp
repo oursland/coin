@@ -575,6 +575,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glUniform1i(this->texUTextureLocation, 0);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glDepthFunc(GL_ALWAYS);  // Render on top of everything
       glBindVertexArray(entry.texVAO);
     } else {
       glBindVertexArray(entry.vao);
@@ -589,6 +590,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     if (isTextured) {
       glBindTexture(GL_TEXTURE_2D, 0);
+      glDepthFunc(GL_LEQUAL);  // Restore depth func
       glUseProgram(this->shaderProgram);
       // Re-upload view/proj for main shader
       glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);

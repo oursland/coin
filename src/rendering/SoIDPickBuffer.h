@@ -151,6 +151,7 @@ private:
   std::vector<uint32_t> idVAOs;
   std::vector<uint32_t> idVAOColorKey;  // idColorVBO bound when VAO was built
   std::vector<uint32_t> idVAOPosKey;    // posVBO bound when VAO was built
+  std::vector<uint32_t> idVAOIdxKey;    // idxVBO bound when VAO was built
 
   // Cached attribute locations for the ID shader
   int cachedPosLoc = -1;

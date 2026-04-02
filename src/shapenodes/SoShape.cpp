@@ -291,6 +291,7 @@ public:
         cmd.material.texture.width = texSize[0];
         cmd.material.texture.height = texSize[1];
         cmd.material.texture.numComponents = texNC;
+        cmd.material.flags |= 0x1;  // Bit 0 = has texture
       }
     }
 
@@ -690,18 +691,12 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Skip screen-space shapes — SoImage and SoText2 need pixel-aligned
-  // rendering (billboard/ortho projection) not yet in the modern backend.
-  // The texture infrastructure works but these nodes position quads in
-  // screen space via getQuad()/glDrawPixels, not world space.
-  static SoType imageType = SoType::badType();
+  // Skip SoText2 — needs font atlas rendering not yet implemented.
   static SoType text2Type = SoType::badType();
-  if (imageType == SoType::badType()) {
-    imageType = SoType::fromName("SoImage");
+  if (text2Type == SoType::badType()) {
     text2Type = SoType::fromName("SoText2");
   }
-  SoType myType = this->getTypeId();
-  if (myType == imageType || myType == text2Type) return;
+  if (this->getTypeId() == text2Type) return;
 
   // Fallback: collect primitives via generatePrimitives() and emit a
   // single draw command. BRep shapes have dedicated render() overrides

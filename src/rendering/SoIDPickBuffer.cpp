@@ -423,12 +423,15 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     idVAOs.resize(numCmds, 0);
     idVAOColorKey.resize(numCmds, 0);
     idVAOPosKey.resize(numCmds, 0);
+    idVAOIdxKey.resize(numCmds, 0);
   }
 
   // Helper: draw one command using cached VBOs + ID VAO when available
   auto drawIdCmd = [&](const SoRenderCommand & cmd, int ci, GLenum prim) {
     if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) return;
     if (!cmd.geometry.positions || cmd.geometry.vertexCount == 0) return;
+    // Skip textured commands (SoImage) — not pickable
+    if (cmd.material.flags & 0x1) return;
 
     SbMat modelMat;
     cmd.modelMatrix.getValue(modelMat);
@@ -440,8 +443,10 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
       // Check if ID VAO needs (re)building
       uint32_t curPosVBO = vboCache[ci].posVBO;
       uint32_t curColorVBO = idColorVBOs[ci];
+      uint32_t curIdxVBO = vboCache[ci].idxVBO;
       if (idVAOs[ci] == 0 || idVAOColorKey[ci] != curColorVBO
-          || idVAOPosKey[ci] != curPosVBO) {
+          || idVAOPosKey[ci] != curPosVBO
+          || idVAOIdxKey[ci] != curIdxVBO) {
         // Build/rebuild the ID VAO
         if (idVAOs[ci] == 0) glGenVertexArrays(1, &idVAOs[ci]);
         glBindVertexArray(idVAOs[ci]);
@@ -466,11 +471,12 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
         idVAOColorKey[ci] = curColorVBO;
         idVAOPosKey[ci] = curPosVBO;
+        idVAOIdxKey[ci] = curIdxVBO;
       }
 
       // Fast path: bind VAO + draw (3 GL calls)
       glBindVertexArray(idVAOs[ci]);
-      if (cmd.geometry.indexCount > 0) {
+      if (cmd.geometry.indexCount > 0 && vboCache[ci].idxVBO != 0) {
         glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, NULL);
       }
       else {
@@ -514,7 +520,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
         cmd.geometry.topology != SO_TOPOLOGY_TRIANGLE_STRIP) continue;
-    if (cmd.material.texture.pixels) continue;  // skip textured (SoImage)
+    if (cmd.material.flags & 0x1) continue;  // skip textured (SoImage)
     drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
 
@@ -527,7 +533,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
         cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
-    if (cmd.material.texture.pixels) continue;
+    if (cmd.material.flags & 0x1) continue;
     glLineWidth(std::max(cmd.state.raster.lineWidth, pickLineWidth));
     drawIdCmd(cmd, ci, GL_LINES);
   }
@@ -541,7 +547,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
-    if (cmd.material.texture.pixels) continue;
+    if (cmd.material.flags & 0x1) continue;
     glPointSize(std::max(cmd.state.raster.lineWidth, pickPointSize));
     drawIdCmd(cmd, ci, GL_POINTS);
   }
