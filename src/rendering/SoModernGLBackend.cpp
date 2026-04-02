@@ -147,6 +147,7 @@ SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
   this->posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
   this->normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
   this->colorLoc = glGetAttribLocation(this->shaderProgram, "a_color");
+  this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
 
   // Initialize GPU pick buffer
   pickBuffer = std::make_unique<SoIDPickBuffer>();

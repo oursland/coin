@@ -100,11 +100,14 @@ private:
   GLint  uColorLocation = -1;
   GLint  uEmissiveLocation = -1;
   GLint  uUseVertexColorLocation = -1;
+  GLint  uUseTextureLocation = -1;
+  GLint  uTextureLocation = -1;
 
   // Cached attribute locations
   GLint posLoc = -1;
   GLint normLoc = -1;
   GLint colorLoc = -1;
+  GLint texcoordLoc = -1;
 
   // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
   // Two commands may share the same coordinate data but have different

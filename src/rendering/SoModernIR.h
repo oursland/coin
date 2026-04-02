@@ -76,6 +76,14 @@ struct SoGeometryDesc {
 
   Texture pointers are backend-defined handles; IR does not own the memory.
 */
+/*! Embedded texture data for commands that carry their own image (SoImage). */
+struct SoTextureData {
+  const unsigned char * pixels = nullptr;
+  int width = 0;
+  int height = 0;
+  int numComponents = 0; // 1=L, 2=LA, 3=RGB, 4=RGBA
+};
+
 struct SoMaterialData {
   SbVec4f  diffuse;
   SbVec4f  ambient;
@@ -83,6 +91,8 @@ struct SoMaterialData {
   SbVec4f  emissive;
   float    shininess;
   float    opacity;
+
+  SoTextureData texture;  //!< Embedded texture (from SoImage, SoTexture2)
 
   void *   diffuseTexture;
   void *   normalTexture;
