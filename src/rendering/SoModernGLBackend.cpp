@@ -147,7 +147,6 @@ SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
   this->posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
   this->normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
   this->colorLoc = glGetAttribLocation(this->shaderProgram, "a_color");
-  this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
 
   // Initialize GPU pick buffer
   pickBuffer = std::make_unique<SoIDPickBuffer>();
@@ -178,6 +177,10 @@ SoModernGLBackend::shutdown()
   if (this->shaderProgram) {
     glDeleteProgram(this->shaderProgram);
     this->shaderProgram = 0;
+  }
+  if (this->texShaderProgram) {
+    glDeleteProgram(this->texShaderProgram);
+    this->texShaderProgram = 0;
   }
   this->setInitialized(FALSE);
   this->emitLog("shutdown");
@@ -237,6 +240,69 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
   else if (entry.colorVBO != 0) {
     glDeleteBuffers(1, &entry.colorVBO);
     entry.colorVBO = 0;
+  }
+
+  // Texcoord VBO + texture upload (for SoImage etc.)
+  if (cmd.geometry.texcoords && cmd.material.texture.pixels
+      && cmd.geometry.vertexCount > 0) {
+    // Texcoord VBO — extract vec2 from vec4 texcoords
+    if (entry.texcoordVBO == 0) glGenBuffers(1, &entry.texcoordVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, entry.texcoordVBO);
+    uint32_t tcStride = cmd.geometry.texcoordStride
+      ? cmd.geometry.texcoordStride : sizeof(float) * 4;
+    if (tcStride == sizeof(float) * 4) {
+      std::vector<float> tc2(cmd.geometry.vertexCount * 2);
+      const float * src = cmd.geometry.texcoords;
+      for (uint32_t i = 0; i < cmd.geometry.vertexCount; i++) {
+        tc2[i * 2] = src[i * 4];
+        tc2[i * 2 + 1] = src[i * 4 + 1];
+      }
+      glBufferData(GL_ARRAY_BUFFER, tc2.size() * sizeof(float),
+                   tc2.data(), GL_STATIC_DRAW);
+    } else {
+      glBufferData(GL_ARRAY_BUFFER,
+                   cmd.geometry.vertexCount * sizeof(float) * 2,
+                   cmd.geometry.texcoords, GL_STATIC_DRAW);
+    }
+
+    // Upload texture
+    if (entry.textureId == 0) glGenTextures(1, &entry.textureId);
+    glBindTexture(GL_TEXTURE_2D, entry.textureId);
+    GLenum fmt = GL_RGBA;
+    switch (cmd.material.texture.numComponents) {
+    case 1: fmt = GL_LUMINANCE; break;
+    case 2: fmt = GL_LUMINANCE_ALPHA; break;
+    case 3: fmt = GL_RGB; break;
+    case 4: fmt = GL_RGBA; break;
+    }
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt,
+                 cmd.material.texture.width, cmd.material.texture.height,
+                 0, fmt, GL_UNSIGNED_BYTE, cmd.material.texture.pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Build texture VAO
+    if (entry.texVAO == 0) glGenVertexArrays(1, &entry.texVAO);
+    glBindVertexArray(entry.texVAO);
+    if (this->texPosLoc >= 0 && entry.posVBO) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.posVBO);
+      glEnableVertexAttribArray(this->texPosLoc);
+      glVertexAttribPointer(this->texPosLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
+    }
+    if (this->texTexcoordLoc >= 0) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.texcoordVBO);
+      glEnableVertexAttribArray(this->texTexcoordLoc);
+      glVertexAttribPointer(this->texTexcoordLoc, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    }
+    if (entry.idxVBO) {
+      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
+    }
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
   }
 
   // Index VBO
@@ -319,6 +385,9 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
   if (entry.posVBO) { glDeleteBuffers(1, &entry.posVBO); entry.posVBO = 0; }
   if (entry.normVBO) { glDeleteBuffers(1, &entry.normVBO); entry.normVBO = 0; }
   if (entry.colorVBO) { glDeleteBuffers(1, &entry.colorVBO); entry.colorVBO = 0; }
+  if (entry.texcoordVBO) { glDeleteBuffers(1, &entry.texcoordVBO); entry.texcoordVBO = 0; }
+  if (entry.textureId) { glDeleteTextures(1, &entry.textureId); entry.textureId = 0; }
+  if (entry.texVAO) { glDeleteVertexArrays(1, &entry.texVAO); entry.texVAO = 0; }
   if (entry.idxVBO) { glDeleteBuffers(1, &entry.idxVBO); entry.idxVBO = 0; }
   if (entry.vao) { glDeleteVertexArrays(1, &entry.vao); entry.vao = 0; }
   if (entry.idVAO) { glDeleteVertexArrays(1, &entry.idVAO); entry.idVAO = 0; }
@@ -412,9 +481,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
         cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
       CachedGPUCommand & entry = getOrCreateCache(cmd.geometry.positions, cmd.geometry.indices);
-      if (!entry.isGeometryValid(cmd.geometry.positions, cmd.geometry.normals,
-                                 cmd.geometry.indices, cmd.geometry.vertexCount,
-                                 cmd.geometry.indexCount, static_cast<uint32_t>(stride))) {
+      bool needsUpload = !entry.isGeometryValid(
+        cmd.geometry.positions, cmd.geometry.normals,
+        cmd.geometry.indices, cmd.geometry.vertexCount,
+        cmd.geometry.indexCount, static_cast<uint32_t>(stride));
+      // Also upload if command has texture but cache doesn't
+      if (!needsUpload && cmd.material.texture.pixels && entry.textureId == 0) {
+        needsUpload = true;
+      }
+      if (needsUpload) {
         uploadGeometry(entry, cmd);
         setupVisualVAO(entry, cmd);
       }
@@ -484,12 +559,40 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glPolygonOffset(oFactor, oUnits);
     }
 
-    glBindVertexArray(entry.vao);
+    // Textured commands use a separate shader program
+    bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
+                       && this->texShaderProgram != 0);
+    if (isTextured) {
+      glUseProgram(this->texShaderProgram);
+      SbMat vm, pm;
+      params.viewMatrix.getValue(vm);
+      params.projMatrix.getValue(pm);
+      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &vm[0][0]);
+      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &pm[0][0]);
+      glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, entry.textureId);
+      glUniform1i(this->texUTextureLocation, 0);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      glBindVertexArray(entry.texVAO);
+    } else {
+      glBindVertexArray(entry.vao);
+    }
+
     if (cmd.geometry.indexCount > 0) {
       glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
     }
     else {
       glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+    }
+
+    if (isTextured) {
+      glBindTexture(GL_TEXTURE_2D, 0);
+      glUseProgram(this->shaderProgram);
+      // Re-upload view/proj for main shader
+      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
     }
 
     if (useOffset) {
@@ -765,6 +868,46 @@ SoModernGLBackend::createShaders()
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
   this->uUseVertexColorLocation = glGetUniformLocation(this->shaderProgram, "u_useVertexColor");
+
+  // Texture shader — emissive textured quad (for SoImage constraint icons etc.)
+  static const char * texVertexSource =
+    "#version 120\n"
+    "attribute vec3 a_position;\n"
+    "attribute vec2 a_texcoord;\n"
+    "uniform mat4 u_proj;\n"
+    "uniform mat4 u_view;\n"
+    "uniform mat4 u_model;\n"
+    "varying vec2 v_texcoord;\n"
+    "void main() {\n"
+    "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
+    "  gl_Position = u_proj * u_view * worldPos;\n"
+    "  v_texcoord = a_texcoord;\n"
+    "}\n";
+
+  static const char * texFragmentSource =
+    "#version 120\n"
+    "uniform sampler2D u_texture;\n"
+    "varying vec2 v_texcoord;\n"
+    "void main() {\n"
+    "  gl_FragColor = texture2D(u_texture, v_texcoord);\n"
+    "}\n";
+
+  GLuint tvs = coin_compile_shader(GL_VERTEX_SHADER, texVertexSource);
+  GLuint tfs = coin_compile_shader(GL_FRAGMENT_SHADER, texFragmentSource);
+  if (tvs != 0 && tfs != 0) {
+    this->texShaderProgram = coin_link_program(tvs, tfs);
+    if (this->texShaderProgram) {
+      this->texUViewLocation = glGetUniformLocation(this->texShaderProgram, "u_view");
+      this->texUProjLocation = glGetUniformLocation(this->texShaderProgram, "u_proj");
+      this->texUModelLocation = glGetUniformLocation(this->texShaderProgram, "u_model");
+      this->texUTextureLocation = glGetUniformLocation(this->texShaderProgram, "u_texture");
+      this->texPosLoc = glGetAttribLocation(this->texShaderProgram, "a_position");
+      this->texTexcoordLoc = glGetAttribLocation(this->texShaderProgram, "a_texcoord");
+    }
+  }
+  glDeleteShader(tvs);
+  glDeleteShader(tfs);
+
   return TRUE;
 }
 

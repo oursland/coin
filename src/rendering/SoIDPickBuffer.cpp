@@ -514,6 +514,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
         cmd.geometry.topology != SO_TOPOLOGY_TRIANGLE_STRIP) continue;
+    if (cmd.material.texture.pixels) continue;  // skip textured (SoImage)
     drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
 
@@ -526,6 +527,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
         cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
+    if (cmd.material.texture.pixels) continue;
     glLineWidth(std::max(cmd.state.raster.lineWidth, pickLineWidth));
     drawIdCmd(cmd, ci, GL_LINES);
   }
@@ -539,6 +541,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
+    if (cmd.material.texture.pixels) continue;
     glPointSize(std::max(cmd.state.raster.lineWidth, pickPointSize));
     drawIdCmd(cmd, ci, GL_POINTS);
   }

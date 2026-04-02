@@ -275,6 +275,25 @@ public:
     SoModernIR::fillMaterialFromState(state, cmd.material);
     SoModernIR::fillRenderStateFromState(state, cmd.state);
 
+    // Capture texture data from state (set by SoImage::generatePrimitives).
+    // Copy pixel data into the geometry pool so it persists until render.
+    {
+      SbVec2s texSize;
+      int texNC = 0;
+      const unsigned char * texPixels =
+        SoMultiTextureImageElement::getImage(state, 0, texSize, texNC);
+      if (texPixels && texSize[0] > 0 && texSize[1] > 0 && texNC > 0) {
+        size_t texBytes = static_cast<size_t>(texSize[0]) * texSize[1] * texNC;
+        unsigned char * texCopy = static_cast<unsigned char *>(
+          this->action->allocateGeometryStorage(texBytes));
+        std::memcpy(texCopy, texPixels, texBytes);
+        cmd.material.texture.pixels = texCopy;
+        cmd.material.texture.width = texSize[0];
+        cmd.material.texture.height = texSize[1];
+        cmd.material.texture.numComponents = texNC;
+      }
+    }
+
     cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
       SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
     cmd.lightingHandle = 0;
@@ -671,18 +690,12 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Skip shapes that require texture/image support not yet in the
-  // modern backend. SoImage (constraint icons), SoText2 (screen text),
-  // and SoMarkerSet (bitmap markers) produce geometry that needs
-  // textures or screen-space projection to render correctly.
-  static SoType imageType = SoType::badType();
+  // Skip shapes that require screen-space text rendering not yet supported.
   static SoType text2Type = SoType::badType();
-  if (imageType == SoType::badType()) {
-    imageType = SoType::fromName("SoImage");
+  if (text2Type == SoType::badType()) {
     text2Type = SoType::fromName("SoText2");
   }
-  SoType myType = this->getTypeId();
-  if (myType == imageType || myType == text2Type) return;
+  if (this->getTypeId() == text2Type) return;
 
   // Fallback: collect primitives via generatePrimitives() and emit a
   // single draw command. BRep shapes have dedicated render() overrides

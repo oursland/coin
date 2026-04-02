@@ -18,6 +18,9 @@ struct CachedGPUCommand {
   GLuint posVBO = 0;
   GLuint normVBO = 0;
   GLuint colorVBO = 0;
+  GLuint texcoordVBO = 0;
+  GLuint textureId = 0;  // GL texture for embedded textures (SoImage)
+  GLuint texVAO = 0;     // textured pass VAO (pos + texcoord)
   GLuint idxVBO = 0;
   GLuint vao = 0;       // visual pass VAO (pos + norm + color + idx)
   GLuint idVAO = 0;     // ID pass VAO (pos + idColor + idx)
@@ -93,6 +96,8 @@ private:
   void destroyCacheEntry(CachedGPUCommand & entry);
 
   SoRenderBackendInitParams storedparams;
+
+  // Main shader (no texture support — macOS requires separate program)
   GLuint shaderProgram = 0;
   GLint  uViewLocation = -1;
   GLint  uProjLocation = -1;
@@ -100,14 +105,18 @@ private:
   GLint  uColorLocation = -1;
   GLint  uEmissiveLocation = -1;
   GLint  uUseVertexColorLocation = -1;
-  GLint  uUseTextureLocation = -1;
-  GLint  uTextureLocation = -1;
-
-  // Cached attribute locations
   GLint posLoc = -1;
   GLint normLoc = -1;
   GLint colorLoc = -1;
-  GLint texcoordLoc = -1;
+
+  // Texture shader (separate program for textured commands)
+  GLuint texShaderProgram = 0;
+  GLint  texUViewLocation = -1;
+  GLint  texUProjLocation = -1;
+  GLint  texUModelLocation = -1;
+  GLint  texUTextureLocation = -1;
+  GLint  texPosLoc = -1;
+  GLint  texTexcoordLoc = -1;
 
   // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
   // Two commands may share the same coordinate data but have different
