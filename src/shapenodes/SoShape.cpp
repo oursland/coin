@@ -644,11 +644,14 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Default: no-op. The generatePrimitives fallback was disabled because
-  // it produces corrupted geometry for some shape types (incorrect PV cache).
-  // BRep shapes have dedicated render() overrides. Other shapes (NaviCube etc.)
-  // render via the legacy superimposition path.
-  (void)action;
+  // Fallback: collect primitives via generatePrimitives() and emit a
+  // single draw command. BRep shapes have dedicated render() overrides
+  // and never reach this code.
+  SoModernPrimitiveAssembler assembler(action, this);
+  action->pushPrimitiveCollector(&assembler);
+  this->generatePrimitives(action);
+  action->popPrimitiveCollector(&assembler);
+  assembler.finalize();
 }
 
 // Doc in parent.
