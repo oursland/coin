@@ -278,8 +278,8 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
     glTexImage2D(GL_TEXTURE_2D, 0, fmt,
                  cmd.material.texture.width, cmd.material.texture.height,
                  0, fmt, GL_UNSIGNED_BYTE, cmd.material.texture.pixels);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -564,18 +564,37 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
                        && this->texShaderProgram != 0);
     if (isTextured) {
       glUseProgram(this->texShaderProgram);
-      SbMat vm, pm;
-      params.viewMatrix.getValue(vm);
-      params.projMatrix.getValue(pm);
-      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &vm[0][0]);
-      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &pm[0][0]);
+      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
       glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+
+      // Compute quad center from vertex positions (average of all vertices)
+      float cx = 0, cy = 0, cz = 0;
+      GLsizei stride = static_cast<GLsizei>(
+        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+      for (uint32_t vi = 0; vi < cmd.geometry.vertexCount; vi++) {
+        const float * p = reinterpret_cast<const float *>(
+          reinterpret_cast<const char *>(cmd.geometry.positions) + vi * stride);
+        cx += p[0]; cy += p[1]; cz += p[2];
+      }
+      float n = static_cast<float>(cmd.geometry.vertexCount);
+      glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
+
+      // Texture pixel size and viewport size
+      glUniform2f(this->texUTexSizeLocation,
+                  static_cast<float>(cmd.material.texture.width),
+                  static_cast<float>(cmd.material.texture.height));
+      SbVec2s vpSz = params.viewport.getViewportSizePixels();
+      glUniform2f(this->texUVpSizeLocation,
+                  static_cast<float>(vpSz[0]),
+                  static_cast<float>(vpSz[1]));
+
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, entry.textureId);
       glUniform1i(this->texUTextureLocation, 0);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glDepthFunc(GL_ALWAYS);  // Render on top of everything
+      glDepthFunc(GL_ALWAYS);
       glBindVertexArray(entry.texVAO);
     } else {
       glBindVertexArray(entry.vao);
@@ -871,7 +890,11 @@ SoModernGLBackend::createShaders()
   this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
   this->uUseVertexColorLocation = glGetUniformLocation(this->shaderProgram, "u_useVertexColor");
 
-  // Texture shader — emissive textured quad (for SoImage constraint icons etc.)
+  // Texture shader — screen-space billboard for SoImage constraint icons.
+  // The vertex positions come from getQuad() which are object-space camera-
+  // aligned, but we override them: project the quad center to clip space,
+  // then offset each vertex by its texcoord to create a pixel-sized quad.
+  // u_texSize = (width, height) in pixels; u_vpSize = viewport size in pixels.
   static const char * texVertexSource =
     "#version 120\n"
     "attribute vec3 a_position;\n"
@@ -879,10 +902,15 @@ SoModernGLBackend::createShaders()
     "uniform mat4 u_proj;\n"
     "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
+    "uniform vec3 u_quadCenter;\n"
+    "uniform vec2 u_texSize;\n"
+    "uniform vec2 u_vpSize;\n"
     "varying vec2 v_texcoord;\n"
     "void main() {\n"
-    "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
-    "  gl_Position = u_proj * u_view * worldPos;\n"
+    "  vec4 centerClip = u_proj * u_view * u_model * vec4(u_quadCenter, 1.0);\n"
+    "  vec2 pixelOffset = (a_texcoord - vec2(0.5)) * u_texSize;\n"
+    "  vec2 ndcOffset = 2.0 * pixelOffset / u_vpSize;\n"
+    "  gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
     "  v_texcoord = a_texcoord;\n"
     "}\n";
 
@@ -891,7 +919,9 @@ SoModernGLBackend::createShaders()
     "uniform sampler2D u_texture;\n"
     "varying vec2 v_texcoord;\n"
     "void main() {\n"
-    "  gl_FragColor = texture2D(u_texture, v_texcoord);\n"
+    "  vec4 c = texture2D(u_texture, v_texcoord);\n"
+    "  if (c.a < 0.5) discard;\n"
+    "  gl_FragColor = c;\n"
     "}\n";
 
   GLuint tvs = coin_compile_shader(GL_VERTEX_SHADER, texVertexSource);
@@ -903,6 +933,9 @@ SoModernGLBackend::createShaders()
       this->texUProjLocation = glGetUniformLocation(this->texShaderProgram, "u_proj");
       this->texUModelLocation = glGetUniformLocation(this->texShaderProgram, "u_model");
       this->texUTextureLocation = glGetUniformLocation(this->texShaderProgram, "u_texture");
+      this->texUQuadCenterLocation = glGetUniformLocation(this->texShaderProgram, "u_quadCenter");
+      this->texUTexSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_texSize");
+      this->texUVpSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_vpSize");
       this->texPosLoc = glGetAttribLocation(this->texShaderProgram, "a_position");
       this->texTexcoordLoc = glGetAttribLocation(this->texShaderProgram, "a_texcoord");
     }

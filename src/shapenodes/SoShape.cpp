@@ -175,6 +175,7 @@ public:
                   const SoPrimitiveVertex * v3) override
   {
     if (!this->ensureTopology(SO_TOPOLOGY_TRIANGLES)) return;
+    this->captureTexture();
     this->appendVertex(v1);
     this->appendVertex(v2);
     this->appendVertex(v3);
@@ -275,24 +276,15 @@ public:
     SoModernIR::fillMaterialFromState(state, cmd.material);
     SoModernIR::fillRenderStateFromState(state, cmd.state);
 
-    // Capture texture data from state (set by SoImage::generatePrimitives).
-    // Copy pixel data into the geometry pool so it persists until render.
-    {
-      SbVec2s texSize;
-      int texNC = 0;
-      const unsigned char * texPixels =
-        SoMultiTextureImageElement::getImage(state, 0, texSize, texNC);
-      if (texPixels && texSize[0] > 0 && texSize[1] > 0 && texNC > 0) {
-        size_t texBytes = static_cast<size_t>(texSize[0]) * texSize[1] * texNC;
-        unsigned char * texCopy = static_cast<unsigned char *>(
-          this->action->allocateGeometryStorage(texBytes));
-        std::memcpy(texCopy, texPixels, texBytes);
-        cmd.material.texture.pixels = texCopy;
-        cmd.material.texture.width = texSize[0];
-        cmd.material.texture.height = texSize[1];
-        cmd.material.texture.numComponents = texNC;
-        cmd.material.flags |= 0x1;  // Bit 0 = has texture
-      }
+    // Use texture data captured during onTriangle (while state was pushed
+    // by SoImage::generatePrimitives). Reading the state here is too late —
+    // the state has been popped by then.
+    if (this->texCopy && this->texWidth > 0) {
+      cmd.material.texture.pixels = this->texCopy;
+      cmd.material.texture.width = this->texWidth;
+      cmd.material.texture.height = this->texHeight;
+      cmd.material.texture.numComponents = this->texNC;
+      cmd.material.flags |= 0x1;  // Bit 0 = has texture
     }
 
     cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
@@ -338,10 +330,35 @@ private:
     return TRUE;
   }
 
+  void captureTexture()
+  {
+    if (this->textureCaptured) return;
+    this->textureCaptured = TRUE;
+    SoState * st = this->action->getState();
+    SbVec2s texSize;
+    int texNC = 0;
+    const unsigned char * texPixels =
+      SoMultiTextureImageElement::getImage(st, 0, texSize, texNC);
+    if (texPixels && texSize[0] > 0 && texSize[1] > 0 && texNC > 0) {
+      this->texWidth = texSize[0];
+      this->texHeight = texSize[1];
+      this->texNC = texNC;
+      size_t texBytes = static_cast<size_t>(texSize[0]) * texSize[1] * texNC;
+      this->texCopy = static_cast<unsigned char *>(
+        this->action->allocateGeometryStorage(texBytes));
+      std::memcpy(this->texCopy, texPixels, texBytes);
+    }
+  }
+
   SoModernRenderAction * action;
   SoShape * shape;
   SoPrimitiveTopology topology;
   SbBool warnedMixed;
+  SbBool textureCaptured = FALSE;
+  unsigned char * texCopy = NULL;
+  int texWidth = 0;
+  int texHeight = 0;
+  int texNC = 0;
   std::vector<IRVertex> vertices;
 };
 
