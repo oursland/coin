@@ -644,6 +644,19 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
+  // Skip shapes that require texture/image support not yet in the
+  // modern backend. SoImage (constraint icons), SoText2 (screen text),
+  // and SoMarkerSet (bitmap markers) produce geometry that needs
+  // textures or screen-space projection to render correctly.
+  static SoType imageType = SoType::badType();
+  static SoType text2Type = SoType::badType();
+  if (imageType == SoType::badType()) {
+    imageType = SoType::fromName("SoImage");
+    text2Type = SoType::fromName("SoText2");
+  }
+  SoType myType = this->getTypeId();
+  if (myType == imageType || myType == text2Type) return;
+
   // Fallback: collect primitives via generatePrimitives() and emit a
   // single draw command. BRep shapes have dedicated render() overrides
   // and never reach this code.

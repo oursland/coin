@@ -22,6 +22,9 @@
 #include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
+#include <Inventor/elements/SoViewVolumeElement.h>
+#include <Inventor/elements/SoMultiTextureImageElement.h>
+#include <Inventor/elements/SoMultiTextureMatrixElement.h>
 #include <Inventor/elements/SoCoordinateElement.h>
 #include <Inventor/elements/SoNormalElement.h>
 #include <Inventor/elements/SoCreaseAngleElement.h>
@@ -83,6 +86,9 @@ SoModernRenderAction::initClass(void)
   SO_ACTION_ADD_METHOD_INTERNAL(SoShape, SoModernRenderAction::renderShape);
 
   SO_ENABLE(SoModernRenderAction, SoViewportRegionElement);
+  SO_ENABLE(SoModernRenderAction, SoViewVolumeElement);
+  SO_ENABLE(SoModernRenderAction, SoMultiTextureImageElement);
+  SO_ENABLE(SoModernRenderAction, SoMultiTextureMatrixElement);
   SO_ENABLE(SoModernRenderAction, SoOverrideElement);
   SO_ENABLE(SoModernRenderAction, SoModelMatrixElement);
   SO_ENABLE(SoModernRenderAction, SoLazyElement);
