@@ -447,24 +447,18 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
     // Modern renderer: invalidate unless it's a camera-only change
     // or we're in interactive navigation mode. This catches scene load,
     // geometry updates, visibility changes, and all structural changes.
-    // Auto-clipping NULL triggers during zoom cause some extra traversals
-    // but that's acceptable (~10% of frames).
     if (PRIVATE(self)->interactive) {
       // Navigation: just redraw, no invalidation
     }
     else if (trigger && trigger == PRIVATE(self)->camera) {
       // Camera-only change: geometry unchanged
     }
-    else if (!trigger) {
-      // NULL trigger: field connection propagation (auto-clipping,
-      // foreground lightRotation connection). Not structural.
-      // Scene load and geometry updates are handled by explicit
-      // invalidateDrawList() calls from addViewProvider.
-    }
     else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
-      // Shape touch: selection/highlight context, not geometry
+      // Shape touch: selection/highlight context, not geometry change
     }
     else {
+      // Structural change, visibility toggle (SoSwitch), or NULL trigger
+      // from field propagation. Must re-traverse to pick up the change.
       PRIVATE(self)->drawListValid = false;
     }
   }
