@@ -157,6 +157,8 @@ struct IRVertex {
   SbVec3f position;
   SbVec3f normal;
   SbVec4f texcoord;
+  SbVec4f color;       // per-vertex RGBA from material index
+  int     materialIdx; // -1 = use uniform color
 };
 
 class SoModernPrimitiveAssembler : public SoModernRenderAction::PrimitiveCollector {
@@ -213,6 +215,17 @@ public:
     float * texcoords = static_cast<float *>(
       this->action->allocateGeometryStorage(sizeof(float) * 4 * numverts));
 
+    // Check if any vertex has a non-zero material index (per-vertex coloring)
+    SoState * state = this->action->getState();
+    int numDiffuse = SoLazyElement::getInstance(state)->getNumDiffuse();
+    bool hasPerVertexColor = (numDiffuse > 1);
+
+    float * colors = NULL;
+    if (hasPerVertexColor) {
+      colors = static_cast<float *>(
+        this->action->allocateGeometryStorage(sizeof(float) * 4 * numverts));
+    }
+
     for (size_t i = 0; i < numverts; ++i) {
       const IRVertex & v = this->vertices[i];
       const SbVec3f & pos = v.position;
@@ -234,17 +247,29 @@ public:
       tdst[1] = tex[1];
       tdst[2] = tex[2];
       tdst[3] = tex[3];
+
+      if (colors) {
+        int idx = v.materialIdx;
+        if (idx < 0) idx = 0;
+        if (idx >= numDiffuse) idx = numDiffuse - 1;
+        const SbColor & dc = SoLazyElement::getDiffuse(state, idx);
+        float tr = SoLazyElement::getTransparency(state, idx);
+        float * cdst = colors + (i * 4);
+        cdst[0] = dc[0];
+        cdst[1] = dc[1];
+        cdst[2] = dc[2];
+        cdst[3] = 1.0f - tr;
+      }
     }
 
     cmd.geometry.positions = positions;
     cmd.geometry.normals = normals;
     cmd.geometry.texcoords = texcoords;
-    cmd.geometry.colors = NULL;
+    cmd.geometry.colors = colors;
     cmd.geometry.indices = NULL;
     cmd.geometry.vertexStride = sizeof(float) * 3;
     cmd.geometry.texcoordStride = sizeof(float) * 4;
 
-    SoState * state = this->action->getState();
     cmd.modelMatrix = SoModelMatrixElement::get(state);
 
     SoModernIR::fillMaterialFromState(state, cmd.material);
@@ -269,6 +294,8 @@ private:
     vertex.position = v->getPoint();
     vertex.normal = v->getNormal();
     vertex.texcoord = v->getTextureCoords();
+    vertex.materialIdx = v->getMaterialIndex();
+    vertex.color.setValue(1.0f, 1.0f, 1.0f, 1.0f);
     this->vertices.push_back(vertex);
   }
 

@@ -17,13 +17,15 @@
 struct CachedGPUCommand {
   GLuint posVBO = 0;
   GLuint normVBO = 0;
+  GLuint colorVBO = 0;
   GLuint idxVBO = 0;
-  GLuint vao = 0;       // visual pass VAO (pos + norm + idx)
+  GLuint vao = 0;       // visual pass VAO (pos + norm + color + idx)
   GLuint idVAO = 0;     // ID pass VAO (pos + idColor + idx)
 
   // Cache invalidation keys (CPU pointer addresses + counts)
   const float *    posKey = nullptr;
   const float *    normKey = nullptr;
+  const float *    colorKey = nullptr;
   const uint32_t * idxKey = nullptr;
   uint32_t vertexCount = 0;
   uint32_t indexCount = 0;
@@ -97,10 +99,12 @@ private:
   GLint  uModelLocation = -1;
   GLint  uColorLocation = -1;
   GLint  uEmissiveLocation = -1;
+  GLint  uUseVertexColorLocation = -1;
 
   // Cached attribute locations
   GLint posLoc = -1;
   GLint normLoc = -1;
+  GLint colorLoc = -1;
 
   // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
   // Two commands may share the same coordinate data but have different

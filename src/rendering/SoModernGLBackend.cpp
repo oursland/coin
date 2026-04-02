@@ -146,6 +146,7 @@ SoModernGLBackend::initialize(const SoRenderBackendInitParams & params)
   // Cache attribute locations
   this->posLoc = glGetAttribLocation(this->shaderProgram, "a_position");
   this->normLoc = glGetAttribLocation(this->shaderProgram, "a_normal");
+  this->colorLoc = glGetAttribLocation(this->shaderProgram, "a_color");
 
   // Initialize GPU pick buffer
   pickBuffer = std::make_unique<SoIDPickBuffer>();
@@ -224,6 +225,19 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
                  cmd.geometry.normals, GL_STATIC_DRAW);
   }
 
+  // Per-vertex color VBO (RGBA float, 4 components per vertex)
+  if (cmd.geometry.colors && cmd.geometry.vertexCount > 0) {
+    if (entry.colorVBO == 0) glGenBuffers(1, &entry.colorVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, entry.colorVBO);
+    glBufferData(GL_ARRAY_BUFFER,
+                 cmd.geometry.vertexCount * sizeof(float) * 4,
+                 cmd.geometry.colors, GL_STATIC_DRAW);
+  }
+  else if (entry.colorVBO != 0) {
+    glDeleteBuffers(1, &entry.colorVBO);
+    entry.colorVBO = 0;
+  }
+
   // Index VBO
   if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
     if (entry.idxVBO == 0) glGenBuffers(1, &entry.idxVBO);
@@ -239,6 +253,7 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
   // Update cache keys
   entry.posKey = cmd.geometry.positions;
   entry.normKey = cmd.geometry.normals;
+  entry.colorKey = cmd.geometry.colors;
   entry.idxKey = cmd.geometry.indices;
   entry.vertexCount = cmd.geometry.vertexCount;
   entry.indexCount = cmd.geometry.indexCount;
@@ -274,6 +289,19 @@ SoModernGLBackend::setupVisualVAO(CachedGPUCommand & entry,
     }
   }
 
+  // Per-vertex color attribute
+  if (this->colorLoc >= 0) {
+    if (entry.colorVBO) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.colorVBO);
+      glEnableVertexAttribArray(this->colorLoc);
+      glVertexAttribPointer(this->colorLoc, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    }
+    else {
+      glDisableVertexAttribArray(this->colorLoc);
+      glVertexAttrib4f(this->colorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+  }
+
   // Index buffer
   if (entry.idxVBO) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
@@ -289,6 +317,7 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
 {
   if (entry.posVBO) { glDeleteBuffers(1, &entry.posVBO); entry.posVBO = 0; }
   if (entry.normVBO) { glDeleteBuffers(1, &entry.normVBO); entry.normVBO = 0; }
+  if (entry.colorVBO) { glDeleteBuffers(1, &entry.colorVBO); entry.colorVBO = 0; }
   if (entry.idxVBO) { glDeleteBuffers(1, &entry.idxVBO); entry.idxVBO = 0; }
   if (entry.vao) { glDeleteVertexArrays(1, &entry.vao); entry.vao = 0; }
   if (entry.idVAO) { glDeleteVertexArrays(1, &entry.idVAO); entry.idVAO = 0; }
@@ -408,7 +437,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     cmd.modelMatrix.getValue(modelMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
 
-    // Per-command color
+    // Per-command color — use vertex colors if available
+    bool hasVertexColors = (entry.colorVBO != 0);
+    glUniform1f(this->uUseVertexColorLocation, hasVertexColors ? 1.0f : 0.0f);
     const SbVec4f & diffuse = cmd.material.diffuse;
     glUniform4f(this->uColorLocation,
                 diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
@@ -666,15 +697,17 @@ SoModernGLBackend::logFrameStats(const SoDrawList & drawlist,
 bool
 SoModernGLBackend::createShaders()
 {
-  // Blinn-Phong shader — view-space headlight
+  // Blinn-Phong shader — view-space headlight, optional per-vertex color
   static const char * vertexSource =
     "#version 120\n"
     "attribute vec3 a_position;\n"
     "attribute vec3 a_normal;\n"
+    "attribute vec4 a_color;\n"
     "uniform mat4 u_proj;\n"
     "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
     "uniform vec4 u_color;\n"
+    "uniform float u_useVertexColor;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
@@ -684,7 +717,7 @@ SoModernGLBackend::createShaders()
     "  v_eyePos = eyePos.xyz;\n"
     "  v_eyeNormal = mat3(u_view) * mat3(u_model) * a_normal;\n"
     "  gl_Position = u_proj * eyePos;\n"
-    "  v_color = u_color;\n"
+    "  v_color = (u_useVertexColor > 0.5) ? a_color : u_color;\n"
     "}\n";
 
   static const char * fragmentSource =
@@ -730,6 +763,7 @@ SoModernGLBackend::createShaders()
   this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
+  this->uUseVertexColorLocation = glGetUniformLocation(this->shaderProgram, "u_useVertexColor");
   return TRUE;
 }
 
