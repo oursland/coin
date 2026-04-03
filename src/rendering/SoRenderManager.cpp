@@ -453,8 +453,11 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
     else if (trigger && trigger == PRIVATE(self)->camera) {
       // Camera-only change: geometry unchanged
     }
-    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())) {
-      // Shape touch: selection/highlight context, not geometry change
+    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())
+             && !ns->getTriggerField()) {
+      // Shape touch without a field change: selection/highlight context.
+      // If a field changed (getTriggerField() != NULL), the shape's
+      // geometry or text may have been updated — must re-traverse.
     }
     else {
       // Structural change, visibility toggle (SoSwitch), or NULL trigger

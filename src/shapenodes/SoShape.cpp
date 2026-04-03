@@ -708,13 +708,6 @@ SoShape::GLRender(SoGLRenderAction * action)
 void
 SoShape::render(SoModernRenderAction * action)
 {
-  // Skip SoText2 — needs font atlas rendering not yet implemented.
-  static SoType text2Type = SoType::badType();
-  if (text2Type == SoType::badType()) {
-    text2Type = SoType::fromName("SoText2");
-  }
-  if (this->getTypeId() == text2Type) return;
-
   // Fallback: collect primitives via generatePrimitives() and emit a
   // single draw command. BRep shapes have dedicated render() overrides
   // and never reach this code.

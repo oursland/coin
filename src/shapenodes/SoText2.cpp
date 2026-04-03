@@ -134,6 +134,8 @@
 #include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoGLMultiTextureEnabledElement.h>
+#include <Inventor/actions/SoModernRenderAction.h>
+#include <Inventor/rendering/SoModernIR.h>
 
 #ifdef COIN_THREADSAFE
 #include <Inventor/threads/SbMutex.h>
@@ -595,6 +597,183 @@ SoText2::GLRender(SoGLRenderAction * action)
 }
 
 // **************************************************************************
+
+/*!
+  Modern renderer: rasterize text to an RGBA texture and emit a billboard
+  textured-quad command, reusing the SoImage texture shader.
+*/
+void
+SoText2::render(SoModernRenderAction * action)
+{
+  SoState * state = action->getState();
+
+  PRIVATE(this)->lock();
+  PRIVATE(this)->buildGlyphCache(state);
+  const cc_font_specification * fontspec =
+    PRIVATE(this)->cache ? PRIVATE(this)->cache->getCachedFontspec() : NULL;
+  if (!fontspec || this->string.getNum() == 0) {
+    PRIVATE(this)->unlock();
+    return;
+  }
+
+  SbVec2s bbsize = PRIVATE(this)->bbox.getSize();
+  const SbVec2s & bbmin = PRIVATE(this)->bbox.getMin();
+  const SbVec2s & bbmax = PRIVATE(this)->bbox.getMax();
+  int texW = bbsize[0];
+  int texH = bbsize[1];
+  if (texW <= 0 || texH <= 0) {
+    PRIVATE(this)->unlock();
+    return;
+  }
+
+  // Get current text color
+  const SbColor & diffuse = SoLazyElement::getDiffuse(state, 0);
+  unsigned char red   = (unsigned char)(diffuse[0] * 255.0f);
+  unsigned char green = (unsigned char)(diffuse[1] * 255.0f);
+  unsigned char blue  = (unsigned char)(diffuse[2] * 255.0f);
+  const unsigned int alpha =
+    (unsigned int)((1.0f - SoLazyElement::getTransparency(state, 0)) * 256);
+
+  // Rasterize all glyphs into an RGBA pixel buffer
+  int numpixels = texW * texH;
+  size_t texBytes = numpixels * 4;
+  unsigned char * pixels = static_cast<unsigned char *>(
+    action->allocateGeometryStorage(texBytes));
+  std::memset(pixels, 0, texBytes);
+
+  float fontsize = SoFontSizeElement::get(state);
+  int ypos = 0;
+  const int nrlines = this->string.getNum();
+
+  for (int i = 0; i < nrlines; i++) {
+    SbString str = this->string[i];
+    int xpos = 0;
+    switch (this->justification.getValue()) {
+    case SoText2::LEFT:   xpos = 0; break;
+    case SoText2::RIGHT:  xpos = PRIVATE(this)->maxwidth - PRIVATE(this)->stringwidth[i]; break;
+    case SoText2::CENTER: xpos = (PRIVATE(this)->maxwidth - PRIVATE(this)->stringwidth[i]) / 2; break;
+    }
+
+    int kerningx = 0, kerningy = 0;
+    int advancex = 0, advancey = 0;
+    int bitmapsize[2], bitmappos[2];
+    cc_glyph2d * prevglyph = NULL;
+    const char * p = str.getString();
+    size_t length = cc_string_utf8_validate_length(p);
+
+    for (unsigned int strcharidx = 0; strcharidx < length; strcharidx++) {
+      uint32_t glyphidx = cc_string_utf8_get_char(p);
+      p = cc_string_utf8_next_char(p);
+
+      cc_glyph2d * glyph = cc_glyph2d_ref(glyphidx, fontspec, 0.0f);
+      const unsigned char * buffer = cc_glyph2d_getbitmap(glyph, bitmapsize, bitmappos);
+
+      if (strcharidx > 0)
+        cc_glyph2d_getkerning(prevglyph, glyph, &kerningx, &kerningy);
+      cc_glyph2d_getadvance(glyph, &advancex, &advancey);
+
+      int rasterx = xpos + kerningx + bitmappos[0];
+      int rastery = ypos + (bitmappos[1] - bitmapsize[1]);
+
+      if (buffer) {
+        int memx = rasterx - bbmin[0];
+        int memy = texH - (bbmax[1] - rastery - 1) - 1;
+
+        if (memx >= 0 && memx + bitmapsize[0] <= texW &&
+            memy >= 0 && memy + bitmapsize[1] <= texH) {
+          unsigned char * dst = pixels + (memy * texW + memx) * 4;
+          const unsigned char * src = buffer;
+          int nextlineoffset = (texW - bitmapsize[0]) * 4;
+
+          for (int y = 0; y < bitmapsize[1]; y++) {
+            for (int x = 0; x < bitmapsize[0]; x++) {
+              *dst++ = red; *dst++ = green; *dst++ = blue;
+              int srcval = *src;
+              int oldval = *dst;
+              *dst = ((oldval * (256 - srcval) + alpha * srcval) >> 8);
+              src++; dst++;
+            }
+            dst += nextlineoffset;
+          }
+        }
+      }
+
+      xpos += (advancex + kerningx);
+      if (prevglyph) cc_glyph2d_unref(prevglyph);
+      prevglyph = glyph;
+    }
+    if (prevglyph) cc_glyph2d_unref(prevglyph);
+    ypos -= (int)(((int)fontsize) * this->spacing.getValue());
+  }
+
+  PRIVATE(this)->unlock();
+
+  // Build a textured quad command (same approach as SoImage).
+  // The quad is a unit square at the origin; the billboard vertex shader
+  // projects it to screen-space pixels.
+  SoRenderCommand & cmd = action->getMutableDrawList().emplaceCommand();
+  std::memset(&cmd, 0, sizeof(cmd));
+
+  // 4 vertices: positions at origin (billboard shader overrides), texcoords 0-1
+  float * positions = static_cast<float *>(
+    action->allocateGeometryStorage(4 * 3 * sizeof(float)));
+  float * texcoords = static_cast<float *>(
+    action->allocateGeometryStorage(4 * 4 * sizeof(float)));
+
+  // All positions at origin — billboard shader handles positioning
+  for (int v = 0; v < 4; v++) {
+    positions[v * 3 + 0] = 0.0f;
+    positions[v * 3 + 1] = 0.0f;
+    positions[v * 3 + 2] = 0.0f;
+  }
+
+  // Texcoords: (s, t, 0, 0) — corners of the quad
+  // Adjust for justification offset
+  float offX = 0.0f;
+  switch (this->justification.getValue()) {
+  case SoText2::LEFT:   offX = (float)bbmin[0]; break;
+  case SoText2::RIGHT:  offX = (float)(bbmin[0] - PRIVATE(this)->maxwidth); break;
+  case SoText2::CENTER: offX = (float)(bbmin[0] - PRIVATE(this)->maxwidth / 2.0f); break;
+  }
+  // The billboard shader maps texcoord (0,0)-(1,1) to a pixel-sized quad.
+  // We need to offset the quad center so it aligns with the text origin.
+  // texcoords encode normalized position within the quad.
+  // Triangle strip order: BL, BR, TL, TR
+  texcoords[0]  = 0.0f; texcoords[1]  = 0.0f; texcoords[2]  = 0.0f; texcoords[3]  = 0.0f;
+  texcoords[4]  = 1.0f; texcoords[5]  = 0.0f; texcoords[6]  = 0.0f; texcoords[7]  = 0.0f;
+  texcoords[8]  = 0.0f; texcoords[9]  = 1.0f; texcoords[10] = 0.0f; texcoords[11] = 0.0f;
+  texcoords[12] = 1.0f; texcoords[13] = 1.0f; texcoords[14] = 0.0f; texcoords[15] = 0.0f;
+
+  cmd.geometry.positions = positions;
+  cmd.geometry.normals = NULL;
+  cmd.geometry.colors = NULL;
+  cmd.geometry.indices = NULL;
+  cmd.geometry.texcoords = texcoords;
+  cmd.geometry.vertexCount = 4;
+  cmd.geometry.indexCount = 0;
+  cmd.geometry.vertexStride = sizeof(float) * 3;
+  cmd.geometry.texcoordStride = sizeof(float) * 4;
+  cmd.geometry.topology = SO_TOPOLOGY_TRIANGLE_STRIP;
+
+  cmd.modelMatrix = SoModelMatrixElement::get(state);
+
+  // Fill material/state BEFORE setting texture (fillMaterial resets flags)
+  SoModernIR::fillMaterialFromState(state, cmd.material);
+  SoModernIR::fillRenderStateFromState(state, cmd.state);
+
+  // Texture data (must be after fillMaterial which resets flags to 0)
+  cmd.material.texture.pixels = pixels;
+  cmd.material.texture.width = texW;
+  cmd.material.texture.height = texH;
+  cmd.material.texture.numComponents = 4;
+  cmd.material.flags |= 0x1; // has texture — skip ID pass
+
+  cmd.pass = SO_RENDERPASS_OPAQUE;
+  cmd.lightingHandle = 0;
+  cmd.pipelineKey = 0;
+  cmd.sortKey = 0;
+  cmd.userData = this;
+}
 
 // doc in super
 void

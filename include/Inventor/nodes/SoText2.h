@@ -35,6 +35,7 @@
 
 #include <Inventor/nodes/SoSubNode.h>
 #include <Inventor/nodes/SoShape.h>
+class SoModernRenderAction;
 #include <Inventor/fields/SoMFString.h>
 #include <Inventor/fields/SoSFFloat.h>
 #include <Inventor/fields/SoSFEnum.h>
@@ -59,6 +60,7 @@ public:
   SoSFEnum justification;
 
   virtual void GLRender(SoGLRenderAction * action);
+  virtual void render(SoModernRenderAction * action);
   virtual void rayPick(SoRayPickAction * action);
   virtual void getPrimitiveCount(SoGetPrimitiveCountAction * action);
 
