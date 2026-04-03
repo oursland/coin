@@ -186,8 +186,21 @@ public:
   void onLine(const SoPrimitiveVertex * v1,
               const SoPrimitiveVertex * v2) override
   {
-    if (!this->ensureTopology(SO_TOPOLOGY_LINES)) return;
-    this->appendVertex(v1);
+    if (!this->ensureTopology(SO_TOPOLOGY_LINE_STRIP)) return;
+    // Build connected line strips. When consecutive line segments share
+    // an endpoint (v1 == last vertex), extend the current strip.
+    // On discontinuity, flush the current strip and start a new one.
+    if (this->vertices.empty()) {
+      this->appendVertex(v1);
+    } else {
+      const SbVec3f & last = this->vertices.back().position;
+      const SbVec3f & p1 = v1->getPoint();
+      if (last != p1) {
+        // Discontinuity: flush current strip as a separate command
+        this->flushLineStrip();
+        this->appendVertex(v1);
+      }
+    }
     this->appendVertex(v2);
   }
 
@@ -197,7 +210,26 @@ public:
     this->appendVertex(v);
   }
 
+  /// Flush accumulated line strip vertices as a separate draw command.
+  /// Called on discontinuities between line segments.
+  void flushLineStrip()
+  {
+    if (this->vertices.size() < 2) {
+      this->vertices.clear();
+      return;
+    }
+    // Temporarily save and emit current vertices as a command
+    this->emitCommand();
+    this->vertices.clear();
+  }
+
   void finalize()
+  {
+    if (this->vertices.empty()) return;
+    this->emitCommand();
+  }
+
+  void emitCommand()
   {
     if (this->vertices.empty()) return;
 
