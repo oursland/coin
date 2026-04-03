@@ -97,6 +97,7 @@ SoDrawList::clear()
   this->commands.truncate(0);
   this->pickLUT.clear();
   this->sortedOrder.clear();
+  this->generation++;
 }
 
 void

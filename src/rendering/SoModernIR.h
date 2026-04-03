@@ -293,6 +293,8 @@ public:
   void clear();
   void reserve(int count);
 
+  uint32_t getGeneration() const { return generation; }
+
   void addCommand(const SoRenderCommand & cmd);
   SoRenderCommand & emplaceCommand();
 
@@ -334,6 +336,7 @@ private:
   SbList<SoRenderCommand> commands;
   std::vector<SoPickLUTEntry> pickLUT;
   std::vector<int> sortedOrder;
+  uint32_t generation = 0;
   uint64_t pickLUTGeneration = 0;
 };
 

@@ -164,11 +164,13 @@ struct IRVertex {
 class SoModernPrimitiveAssembler : public SoModernRenderAction::PrimitiveCollector {
 public:
   SoModernPrimitiveAssembler(SoModernRenderAction * action,
-                             SoShape * shape)
+                             SoShape * shape,
+                             SbBool billboard = FALSE)
   : action(action),
     shape(shape),
     topology(SO_TOPOLOGY_COUNT),
-    warnedMixed(FALSE) {}
+    warnedMixed(FALSE),
+    useBillboard(billboard) {}
 
   void onTriangle(const SoPrimitiveVertex * v1,
                   const SoPrimitiveVertex * v2,
@@ -284,7 +286,10 @@ public:
       cmd.material.texture.width = this->texWidth;
       cmd.material.texture.height = this->texHeight;
       cmd.material.texture.numComponents = this->texNC;
-      cmd.material.flags |= 0x1 | 0x2;  // Bit 0 = has texture, Bit 1 = billboard
+      cmd.material.flags |= 0x1;  // Bit 0 = has texture
+      if (this->useBillboard) {
+        cmd.material.flags |= 0x2;  // Bit 1 = billboard (screen-space sizing)
+      }
     }
 
     cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
@@ -354,6 +359,7 @@ private:
   SoShape * shape;
   SoPrimitiveTopology topology;
   SbBool warnedMixed;
+  SbBool useBillboard;
   SbBool textureCaptured = FALSE;
   unsigned char * texCopy = NULL;
   int texWidth = 0;
@@ -711,7 +717,14 @@ SoShape::render(SoModernRenderAction * action)
   // Fallback: collect primitives via generatePrimitives() and emit a
   // single draw command. BRep shapes have dedicated render() overrides
   // and never reach this code.
-  SoModernPrimitiveAssembler assembler(action, this);
+  // SoImage nodes need billboard mode (screen-space pixel sizing).
+  // Other textured shapes (SoTexture2 on geometry) use world-space rendering.
+  static SoType imageType = SoType::badType();
+  if (imageType == SoType::badType()) {
+    imageType = SoType::fromName("SoImage");
+  }
+  SbBool isBillboard = (this->getTypeId() == imageType) ? TRUE : FALSE;
+  SoModernPrimitiveAssembler assembler(action, this, isBillboard);
   action->pushPrimitiveCollector(&assembler);
   this->generatePrimitives(action);
   action->popPrimitiveCollector(&assembler);

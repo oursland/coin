@@ -134,6 +134,7 @@ public:
   SbBool modernEnabled;
   int modernFrameCounter;
   bool drawListValid = false;
+  bool hasCameraDependentShapes = false;
   SbBool interactive = FALSE;
 #ifdef COIN_USE_BACKTRACE
   struct backtrace_state * btState = nullptr;

@@ -41,11 +41,14 @@ struct CachedGPUCommand {
 
   bool isGeometryValid(const float * pos, const float * norm,
                        const uint32_t * idx, uint32_t vCount,
-                       uint32_t iCount, uint32_t vStride) const {
-    return posVBO != 0 && pos == posKey && norm == normKey
+                       uint32_t iCount, uint32_t vStride,
+                       uint32_t gen) const {
+    return posVBO != 0 && gen == cacheGeneration
+        && pos == posKey && norm == normKey
         && idx == idxKey && vCount == vertexCount
         && iCount == indexCount && vStride == vertexStride;
   }
+  uint32_t cacheGeneration = 0;
 };
 
 /*!

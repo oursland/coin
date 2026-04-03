@@ -444,7 +444,12 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    if (PRIVATE(self)->interactive) {
+    if (PRIVATE(self)->hasCameraDependentShapes) {
+      // Scene has camera-dependent shapes (e.g. SoDatumLabel) — always
+      // invalidate so geometry is rebuilt with the current view volume.
+      PRIVATE(self)->drawListValid = false;
+    }
+    else if (PRIVATE(self)->interactive) {
       // Navigation: just redraw, no invalidation for non-camera triggers
     }
     else if (trigger && trigger->isOfType(SoShape::getClassTypeId())
@@ -569,6 +574,8 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
     // Propagate camera-dependency flag from action to render manager.
     // When set, the sensor callback will invalidate on camera changes.
+    PRIVATE(this)->hasCameraDependentShapes =
+      action->hasCameraDependentShapes();
   }
 
   SoRenderTargetInfo targetinfo = {};

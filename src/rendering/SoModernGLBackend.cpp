@@ -317,7 +317,7 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-  // Update cache keys
+  // Update cache keys (generation is set by the caller after upload)
   entry.posKey = cmd.geometry.positions;
   entry.normKey = cmd.geometry.normals;
   entry.colorKey = cmd.geometry.colors;
@@ -481,10 +481,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
         cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
       CachedGPUCommand & entry = getOrCreateCache(cmd.geometry.positions, cmd.geometry.indices);
+      uint32_t gen = drawlist.getGeneration();
       bool needsUpload = !entry.isGeometryValid(
         cmd.geometry.positions, cmd.geometry.normals,
         cmd.geometry.indices, cmd.geometry.vertexCount,
-        cmd.geometry.indexCount, static_cast<uint32_t>(stride));
+        cmd.geometry.indexCount, static_cast<uint32_t>(stride), gen);
       // Also upload if command has texture but cache doesn't
       if (!needsUpload && cmd.material.texture.pixels && entry.textureId == 0) {
         needsUpload = true;
@@ -492,6 +493,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       if (needsUpload) {
         uploadGeometry(entry, cmd);
         setupVisualVAO(entry, cmd);
+        entry.cacheGeneration = gen;
       }
       entry.lastUsedFrame = this->currentFrame;
     }
@@ -932,11 +934,7 @@ SoModernGLBackend::createShaders()
     "varying float v_billboard;\n"
     "void main() {\n"
     "  vec4 c = texture2D(u_texture, v_texcoord);\n"
-    "  if (v_billboard > 0.5) {\n"
-    "    if (c.a < 0.5) discard;\n"
-    "  } else {\n"
-    "    if (c.a < 0.01) discard;\n"
-    "  }\n"
+    "  if (c.a < 0.3) discard;\n"
     "  gl_FragColor = c;\n"
     "}\n";
 
