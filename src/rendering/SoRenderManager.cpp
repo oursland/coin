@@ -449,8 +449,11 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
       // invalidate so geometry is rebuilt with the current view volume.
       PRIVATE(self)->drawListValid = false;
     }
-    else if (PRIVATE(self)->interactive) {
-      // Navigation: just redraw, no invalidation for non-camera triggers
+    else if (PRIVATE(self)->interactive && trigger) {
+      // Navigation with a known trigger node: just redraw, no invalidation.
+      // NULL triggers (structural changes like addChild/removeChild) still
+      // need invalidation even during interactive mode — e.g. rotation center
+      // sphere added dynamically at the start of orbit.
     }
     else if (trigger && trigger->isOfType(SoShape::getClassTypeId())
              && !ns->getTriggerField()) {

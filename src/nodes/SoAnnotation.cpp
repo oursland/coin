@@ -59,8 +59,10 @@
 
 #include <Inventor/nodes/SoAnnotation.h>
 
-#include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
+#include <Inventor/elements/SoCacheElement.h>
+#include <Inventor/elements/SoDepthBufferElement.h>
 #include <Inventor/system/gl.h>
 
 #ifdef HAVE_CONFIG_H
@@ -95,6 +97,24 @@ void
 SoAnnotation::initClass(void)
 {
   SO_NODE_INTERNAL_INIT_CLASS(SoAnnotation, SO_FROM_INVENTOR_1);
+}
+
+// For the modern renderer: disable depth testing for annotation children,
+// matching the legacy GLRender behavior (glDisable(GL_DEPTH_TEST)).
+void
+SoAnnotation::doAction(SoAction * action)
+{
+  if (action->isOfType(SoModernRenderAction::getClassTypeId())) {
+    SoState * state = action->getState();
+    state->push();
+    SoDepthBufferElement::set(state, FALSE, TRUE,
+                              SoDepthBufferElement::LEQUAL,
+                              SbVec2f(0.0f, 1.0f));
+    inherited::doAction(action);
+    state->pop();
+    return;
+  }
+  inherited::doAction(action);
 }
 
 // Doc in superclass.

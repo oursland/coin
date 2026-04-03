@@ -10,6 +10,7 @@
 #include <Inventor/elements/SoGLCacheContextElement.h>
 #include <Inventor/elements/SoGLShaderProgramElement.h>
 #include <Inventor/elements/SoLazyElement.h>
+#include <Inventor/elements/SoLightModelElement.h>
 #include <Inventor/elements/SoLinePatternElement.h>
 #include <Inventor/elements/SoLineWidthElement.h>
 #include <Inventor/elements/SoPointSizeElement.h>
@@ -416,8 +417,31 @@ fillMaterialFromState(SoState * state, SoMaterialData & material)
   const SbColor & emissive = SoLazyElement::getEmissive(mutableState);
   const float transparency = SoLazyElement::getTransparency(mutableState, 0);
 
-  material.diffuse.setValue(diffuse[0], diffuse[1], diffuse[2],
-                            1.0f - transparency);
+  // When light model is BASE_COLOR, use emissive as the display color
+  // and flag for flat (unlit) rendering. This handles materials that only
+  // set emissiveColor (e.g. rotation center sphere, annotations).
+  // When emissive is set and diffuse is near-default (0.8,0.8,0.8),
+  // use emissive as the diffuse color. This handles materials that only
+  // set emissiveColor (e.g. rotation center sphere) — the intent is to
+  // display the emissive color, not the default gray.
+  // TODO: revisit with proper emissive shader handling.
+  bool hasEmissive = (emissive[0] > 0.01f || emissive[1] > 0.01f || emissive[2] > 0.01f);
+  bool isDefaultDiffuse = (diffuse[0] > 0.79f && diffuse[0] < 0.81f
+                        && diffuse[1] > 0.79f && diffuse[1] < 0.81f
+                        && diffuse[2] > 0.79f && diffuse[2] < 0.81f);
+  if (hasEmissive && isDefaultDiffuse) {
+    material.diffuse.setValue(emissive[0], emissive[1], emissive[2],
+                              1.0f - transparency);
+  } else {
+    material.diffuse.setValue(diffuse[0], diffuse[1], diffuse[2],
+                              1.0f - transparency);
+  }
+
+  // Flag BASE_COLOR light model for flat (unlit) rendering
+  int lightModel = SoLightModelElement::get(mutableState);
+  if (lightModel == SoLightModelElement::BASE_COLOR) {
+    material.featureFlags |= 0x1;
+  }
   material.ambient.setValue(ambient[0], ambient[1], ambient[2], 1.0f);
   material.specular.setValue(specular[0], specular[1], specular[2], 1.0f);
   material.emissive.setValue(emissive[0], emissive[1], emissive[2], 1.0f);

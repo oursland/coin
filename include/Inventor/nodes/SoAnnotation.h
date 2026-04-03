@@ -49,6 +49,7 @@ public:
   virtual void GLRenderBelowPath(SoGLRenderAction * action);
   virtual void GLRenderInPath(SoGLRenderAction * action);
   virtual void GLRenderOffPath(SoGLRenderAction * action);
+  virtual void doAction(SoAction * action);
 
 protected:
   virtual ~SoAnnotation();

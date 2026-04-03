@@ -546,10 +546,16 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
-    // Points and lines have no meaningful normals — use flat (emissive)
-    // color to avoid near-black output from Blinn-Phong with zero normals.
-    bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP);
+    // Flat (unlit) rendering for points, lines, and BASE_COLOR materials.
+    // Points/lines have zero normals; BASE_COLOR materials use emissive
+    // as the display color (e.g. rotation center sphere, annotations).
+    bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP
+                      || (cmd.material.featureFlags & 0x1));
     glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
+
+    // Per-command emissive color for Blinn-Phong (added to lighting result)
+    const SbVec4f & ec = cmd.material.emissive;
+    glUniform3f(this->uEmissiveColorLocation, ec[0], ec[1], ec[2]);
 
 
     // Wireframe draw style: render triangles as lines
@@ -910,6 +916,7 @@ SoModernGLBackend::createShaders()
   static const char * fragmentSource =
     "#version 120\n"
     "uniform float u_emissive;\n"
+    "uniform vec3 u_emissiveColor;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
@@ -929,7 +936,7 @@ SoModernGLBackend::createShaders()
     "  vec3 ambient = 0.25 * v_color.rgb;\n"
     "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"
     "  vec3 specular = 0.12 * spec * vec3(1.0);\n"
-    "  gl_FragColor = vec4(ambient + diffuse + specular, v_color.a);\n"
+    "  gl_FragColor = vec4(ambient + diffuse + specular + u_emissiveColor, v_color.a);\n"
     "}\n";
 
   GLuint vs = coin_compile_shader(GL_VERTEX_SHADER, vertexSource);
@@ -950,6 +957,7 @@ SoModernGLBackend::createShaders()
   this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
   this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
+  this->uEmissiveColorLocation = glGetUniformLocation(this->shaderProgram, "u_emissiveColor");
   this->uUseVertexColorLocation = glGetUniformLocation(this->shaderProgram, "u_useVertexColor");
 
   // Texture shader — screen-space billboard for SoImage constraint icons.

@@ -107,6 +107,7 @@ private:
   GLint  uModelLocation = -1;
   GLint  uColorLocation = -1;
   GLint  uEmissiveLocation = -1;
+  GLint  uEmissiveColorLocation = -1;
   GLint  uUseVertexColorLocation = -1;
   GLint posLoc = -1;
   GLint normLoc = -1;
