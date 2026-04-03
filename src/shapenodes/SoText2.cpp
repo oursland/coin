@@ -766,7 +766,7 @@ SoText2::render(SoModernRenderAction * action)
   cmd.material.texture.width = texW;
   cmd.material.texture.height = texH;
   cmd.material.texture.numComponents = 4;
-  cmd.material.flags |= 0x1; // has texture — skip ID pass
+  cmd.material.flags |= 0x1 | 0x2; // has texture + billboard — skip ID pass
 
   cmd.pass = SO_RENDERPASS_OPAQUE;
   cmd.lightingHandle = 0;

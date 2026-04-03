@@ -284,7 +284,7 @@ public:
       cmd.material.texture.width = this->texWidth;
       cmd.material.texture.height = this->texHeight;
       cmd.material.texture.numComponents = this->texNC;
-      cmd.material.flags |= 0x1;  // Bit 0 = has texture
+      cmd.material.flags |= 0x1 | 0x2;  // Bit 0 = has texture, Bit 1 = billboard
     }
 
     cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?

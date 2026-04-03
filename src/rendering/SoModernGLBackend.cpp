@@ -563,31 +563,35 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
                        && this->texShaderProgram != 0);
     if (isTextured) {
+      bool isBillboard = (cmd.material.flags & 0x2) != 0;
       glUseProgram(this->texShaderProgram);
       glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
       glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
       glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+      glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
 
-      // Compute quad center from vertex positions (average of all vertices)
-      float cx = 0, cy = 0, cz = 0;
-      GLsizei stride = static_cast<GLsizei>(
-        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
-      for (uint32_t vi = 0; vi < cmd.geometry.vertexCount; vi++) {
-        const float * p = reinterpret_cast<const float *>(
-          reinterpret_cast<const char *>(cmd.geometry.positions) + vi * stride);
-        cx += p[0]; cy += p[1]; cz += p[2];
+      if (isBillboard) {
+        // Compute quad center from vertex positions (average of all vertices)
+        float cx = 0, cy = 0, cz = 0;
+        GLsizei stride = static_cast<GLsizei>(
+          cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+        for (uint32_t vi = 0; vi < cmd.geometry.vertexCount; vi++) {
+          const float * p = reinterpret_cast<const float *>(
+            reinterpret_cast<const char *>(cmd.geometry.positions) + vi * stride);
+          cx += p[0]; cy += p[1]; cz += p[2];
+        }
+        float n = static_cast<float>(cmd.geometry.vertexCount);
+        glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
+
+        // Texture pixel size and viewport size
+        glUniform2f(this->texUTexSizeLocation,
+                    static_cast<float>(cmd.material.texture.width),
+                    static_cast<float>(cmd.material.texture.height));
+        SbVec2s vpSz = params.viewport.getViewportSizePixels();
+        glUniform2f(this->texUVpSizeLocation,
+                    static_cast<float>(vpSz[0]),
+                    static_cast<float>(vpSz[1]));
       }
-      float n = static_cast<float>(cmd.geometry.vertexCount);
-      glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
-
-      // Texture pixel size and viewport size
-      glUniform2f(this->texUTexSizeLocation,
-                  static_cast<float>(cmd.material.texture.width),
-                  static_cast<float>(cmd.material.texture.height));
-      SbVec2s vpSz = params.viewport.getViewportSizePixels();
-      glUniform2f(this->texUVpSizeLocation,
-                  static_cast<float>(vpSz[0]),
-                  static_cast<float>(vpSz[1]));
 
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, entry.textureId);
@@ -905,12 +909,19 @@ SoModernGLBackend::createShaders()
     "uniform vec3 u_quadCenter;\n"
     "uniform vec2 u_texSize;\n"
     "uniform vec2 u_vpSize;\n"
+    "uniform float u_billboard;\n"
     "varying vec2 v_texcoord;\n"
+    "varying float v_billboard;\n"
     "void main() {\n"
-    "  vec4 centerClip = u_proj * u_view * u_model * vec4(u_quadCenter, 1.0);\n"
-    "  vec2 pixelOffset = (a_texcoord - vec2(0.5)) * u_texSize;\n"
-    "  vec2 ndcOffset = 2.0 * pixelOffset / u_vpSize;\n"
-    "  gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
+    "  v_billboard = u_billboard;\n"
+    "  if (u_billboard > 0.5) {\n"
+    "    vec4 centerClip = u_proj * u_view * u_model * vec4(u_quadCenter, 1.0);\n"
+    "    vec2 pixelOffset = (a_texcoord - vec2(0.5)) * u_texSize;\n"
+    "    vec2 ndcOffset = 2.0 * pixelOffset / u_vpSize;\n"
+    "    gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
+    "  } else {\n"
+    "    gl_Position = u_proj * u_view * u_model * vec4(a_position, 1.0);\n"
+    "  }\n"
     "  v_texcoord = a_texcoord;\n"
     "}\n";
 
@@ -918,9 +929,14 @@ SoModernGLBackend::createShaders()
     "#version 120\n"
     "uniform sampler2D u_texture;\n"
     "varying vec2 v_texcoord;\n"
+    "varying float v_billboard;\n"
     "void main() {\n"
     "  vec4 c = texture2D(u_texture, v_texcoord);\n"
-    "  if (c.a < 0.5) discard;\n"
+    "  if (v_billboard > 0.5) {\n"
+    "    if (c.a < 0.5) discard;\n"
+    "  } else {\n"
+    "    if (c.a < 0.01) discard;\n"
+    "  }\n"
     "  gl_FragColor = c;\n"
     "}\n";
 
@@ -936,6 +952,7 @@ SoModernGLBackend::createShaders()
       this->texUQuadCenterLocation = glGetUniformLocation(this->texShaderProgram, "u_quadCenter");
       this->texUTexSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_texSize");
       this->texUVpSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_vpSize");
+      this->texUBillboardLocation = glGetUniformLocation(this->texShaderProgram, "u_billboard");
       this->texPosLoc = glGetAttribLocation(this->texShaderProgram, "a_position");
       this->texTexcoordLoc = glGetAttribLocation(this->texShaderProgram, "a_texcoord");
     }

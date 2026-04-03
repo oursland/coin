@@ -444,14 +444,8 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    // Modern renderer: invalidate unless it's a camera-only change
-    // or we're in interactive navigation mode. This catches scene load,
-    // geometry updates, visibility changes, and all structural changes.
     if (PRIVATE(self)->interactive) {
-      // Navigation: just redraw, no invalidation
-    }
-    else if (trigger && trigger == PRIVATE(self)->camera) {
-      // Camera-only change: geometry unchanged
+      // Navigation: just redraw, no invalidation for non-camera triggers
     }
     else if (trigger && trigger->isOfType(SoShape::getClassTypeId())
              && !ns->getTriggerField()) {
@@ -572,6 +566,9 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
     action->getMutableDrawList().buildPickLUT();
     PRIVATE(this)->drawListValid = true;
+
+    // Propagate camera-dependency flag from action to render manager.
+    // When set, the sensor callback will invalidate on camera changes.
   }
 
   SoRenderTargetInfo targetinfo = {};

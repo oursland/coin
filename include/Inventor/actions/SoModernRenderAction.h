@@ -71,6 +71,11 @@ public:
   void popPrimitiveCollector(PrimitiveCollector * collector);
   PrimitiveCollector * getActivePrimitiveCollector(void) const;
 
+  /// Flag that the scene contains camera-dependent shapes (e.g. SoDatumLabel)
+  /// that need re-traversal when the camera changes.
+  void setHasCameraDependentShapes(bool v) { cameraDependentShapes = v; }
+  bool hasCameraDependentShapes() const { return cameraDependentShapes; }
+
   // (later) hooks for backend:
   // uint32_t getCacheContext(void) const;
   // void setCacheContext(uint32_t ctx);
@@ -92,6 +97,7 @@ private:
 
   SoDrawList       drawlist;
   SoModernRenderActionP * pimpl;
+  bool             cameraDependentShapes = false;
 };
 
 #endif // COIN_SOMODERNRENDERACTION_H
