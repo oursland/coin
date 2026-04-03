@@ -712,7 +712,7 @@ SoText2::render(SoModernRenderAction * action)
   // The quad is a unit square at the origin; the billboard vertex shader
   // projects it to screen-space pixels.
   SoRenderCommand & cmd = action->getMutableDrawList().emplaceCommand();
-  std::memset(&cmd, 0, sizeof(cmd));
+  cmd = {};
 
   // 4 vertices: positions at origin (billboard shader overrides), texcoords 0-1
   float * positions = static_cast<float *>(

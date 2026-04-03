@@ -132,6 +132,7 @@ struct SoRasterState {
   uint8_t cullMode;
   SbBool  scissorEnabled;
   float   lineWidth;
+  float   pointSize;
   uint16_t linePattern;     // GL line stipple pattern (0xFFFF = solid)
   int16_t  linePatternScale; // GL line stipple repeat factor
   float   polygonOffsetFactor;

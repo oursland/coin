@@ -233,8 +233,7 @@ public:
   {
     if (this->vertices.empty()) return;
 
-    SoRenderCommand cmd;
-    std::memset(&cmd, 0, sizeof(SoRenderCommand));
+    SoRenderCommand cmd = {};
 
     SoPrimitiveTopology topo = this->topology;
     if (topo == SO_TOPOLOGY_COUNT) topo = SO_TOPOLOGY_TRIANGLES;

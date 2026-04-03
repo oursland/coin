@@ -12,6 +12,7 @@
 #include <Inventor/elements/SoLazyElement.h>
 #include <Inventor/elements/SoLinePatternElement.h>
 #include <Inventor/elements/SoLineWidthElement.h>
+#include <Inventor/elements/SoPointSizeElement.h>
 #include <Inventor/elements/SoModelMatrixElement.h>
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoPolygonOffsetElement.h>
@@ -469,6 +470,7 @@ fillRenderStateFromState(SoState * state, SoRenderState & rs)
   rs.raster.cullMode = 0;
   rs.raster.scissorEnabled = FALSE;
   rs.raster.lineWidth = SoLineWidthElement::get(mutableState);
+  rs.raster.pointSize = SoPointSizeElement::get(mutableState);
   rs.raster.linePattern = static_cast<uint16_t>(SoLinePatternElement::get(mutableState));
   rs.raster.linePatternScale = static_cast<int16_t>(SoLinePatternElement::getScaleFactor(mutableState));
 
@@ -525,7 +527,7 @@ appendCacheDrawCommands(const SoPrimitiveVertexCache * cache,
   }
 
   SoRenderCommand cmd;
-  std::memset(&cmd, 0, sizeof(SoRenderCommand));
+  cmd = {};
   cmd.geometry.topology = SO_TOPOLOGY_TRIANGLES;
   cmd.geometry.vertexCount = static_cast<uint32_t>(numverts);
   cmd.geometry.normalCount = static_cast<uint32_t>(numverts);

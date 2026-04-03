@@ -304,6 +304,28 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
   }
+  else {
+    // No texture on this command — clean up stale texture state from
+    // a previous command that used the same cache entry (pool address reuse).
+    if (entry.textureId) {
+      static int cleanDbg = 0;
+      if (cleanDbg < 5) {
+        cleanDbg++;
+        fprintf(stderr, "TEXCLEAN: clearing stale textureId=%u texVAO=%u for verts=%u topo=%d\n",
+                entry.textureId, entry.texVAO, cmd.geometry.vertexCount, cmd.geometry.topology);
+      }
+      glDeleteTextures(1, &entry.textureId);
+      entry.textureId = 0;
+    }
+    if (entry.texVAO) {
+      glDeleteVertexArrays(1, &entry.texVAO);
+      entry.texVAO = 0;
+    }
+    if (entry.texcoordVBO) {
+      glDeleteBuffers(1, &entry.texcoordVBO);
+      entry.texcoordVBO = 0;
+    }
+  }
 
   // Index VBO
   if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
@@ -524,6 +546,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
+    // Points and lines have no meaningful normals — use flat (emissive)
+    // color to avoid near-black output from Blinn-Phong with zero normals.
+    bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP);
+    glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
+
+
     // Wireframe draw style: render triangles as lines
     uint8_t fillMode = cmd.state.raster.fillMode;
     if (fillMode == 1 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
@@ -534,7 +562,13 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
 
     if (prim == GL_POINTS || fillMode == 2) {
-      glPointSize(std::max(cmd.state.raster.lineWidth, 4.0f));
+      float ps = cmd.state.raster.pointSize;
+      if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
+      glPointSize(std::max(ps, 1.0f));
+      glEnable(GL_POINT_SMOOTH);
+      glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
     if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
       glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
@@ -615,7 +649,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     if (isTextured) {
       glBindTexture(GL_TEXTURE_2D, 0);
-      glDepthFunc(GL_LEQUAL);  // Restore depth func
+      glDisable(GL_BLEND);
+      glDepthFunc(GL_LEQUAL);
+      glDepthMask(GL_TRUE);
       glUseProgram(this->shaderProgram);
       // Re-upload view/proj for main shader
       glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
@@ -630,6 +666,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
     if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
       glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
+    if (prim == GL_POINTS || fillMode == 2) {
+      glDisable(GL_POINT_SMOOTH);
+      glDisable(GL_BLEND);
     }
   };
 
@@ -706,6 +746,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
+
+    if (prim == GL_POINTS) {
+      glEnable(GL_POINT_SMOOTH);
+      glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    }
 
     // Bind cached VAO (has pos + norm + idx already set up).
     // For emissive overlay, normals are ignored by the shader (u_emissive > 0.5).
