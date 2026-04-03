@@ -548,7 +548,9 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
     if (cmd.material.flags & 0x1) continue;
-    glPointSize(std::max(cmd.state.raster.lineWidth, pickPointSize));
+    float ps = cmd.state.raster.pointSize;
+    if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
+    glPointSize(std::max(ps, pickPointSize));
     drawIdCmd(cmd, ci, GL_POINTS);
   }
   glDepthMask(GL_TRUE);

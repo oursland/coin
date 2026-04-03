@@ -37,6 +37,8 @@
 #include <Inventor/nodes/SoPointSet.h>
 #include <Inventor/fields/SoMFInt32.h>
 
+class SoModernRenderAction;
+
 class COIN_DLL_API SoMarkerSet : public SoPointSet {
   typedef SoPointSet inherited;
 
@@ -89,6 +91,7 @@ public:
   SoMFInt32 markerIndex;
 
   virtual void GLRender(SoGLRenderAction * action);
+  virtual void render(SoModernRenderAction * action);
   virtual void getPrimitiveCount(SoGetPrimitiveCountAction * action);
 
   static int getNumDefinedMarkers(void);

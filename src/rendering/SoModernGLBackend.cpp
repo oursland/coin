@@ -719,7 +719,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
     else {
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.geometry.vertexCount)) {
-        glPointSize(8.0f);
+        float ps = cmd.state.raster.pointSize;
+        if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
+        glPointSize(std::max(ps, 20.0f));
         glDrawArrays(prim, elemIdx, 1);
       }
       else {
@@ -750,6 +752,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (prim == GL_POINTS) {
       glEnable(GL_POINT_SMOOTH);
       glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      // Use GL_ALWAYS so point highlights render on top of billboard markers
+      glDepthFunc(GL_ALWAYS);
     }
 
     // Bind cached VAO (has pos + norm + idx already set up).
@@ -768,6 +774,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       const SbVec4f & hc = cmd.selection.highlightColor;
       glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], 0.6f);
       drawElementRange(cmd, hlElem, prim);
+    }
+
+    if (prim == GL_POINTS) {
+      glDisable(GL_POINT_SMOOTH);
+      glDepthFunc(GL_LEQUAL);
     }
   }
 

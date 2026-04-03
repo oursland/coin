@@ -78,10 +78,13 @@
 #include <Inventor/misc/SoState.h>
 #include <Inventor/SoPrimitiveVertex.h>
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/actions/SoModernRenderAction.h>
+#include <Inventor/rendering/SoModernIR.h>
 #include <Inventor/nodes/SoVertexProperty.h>
 #include <Inventor/actions/SoGetPrimitiveCountAction.h>
 #include <Inventor/elements/SoGLCoordinateElement.h>
 #include <Inventor/elements/SoMaterialBindingElement.h>
+#include <Inventor/elements/SoModelMatrixElement.h>
 #include <Inventor/bundles/SoMaterialBundle.h>
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoLazyElement.h>
@@ -1282,6 +1285,162 @@ SoMarkerSet::GLRender(SoGLRenderAction * action)
   glPopMatrix();
 
   state->pop(); // we pushed, remember
+}
+
+// ----------------------------------------------------------------------------------------------------
+
+/*!
+  Modern renderer: render each marker as a textured billboard quad.
+  Unpacks the 1-bit marker bitmap to RGBA and emits a billboard command
+  per unique marker index, positioned at each vertex.
+*/
+void
+SoMarkerSet::render(SoModernRenderAction * action)
+{
+  SoState * state = action->getState();
+
+  if (this->vertexProperty.getValue()) {
+    state->push();
+    this->vertexProperty.getValue()->doAction(action);
+  }
+
+  const SoCoordinateElement * coords;
+  const SbVec3f * normals;
+  SbBool needNormals = FALSE;
+  SoVertexShape::getVertexData(state, coords, normals, needNormals);
+
+  int32_t numpts = this->numPoints.getValue();
+  int32_t startidx = this->startIndex.getValue();
+  if (numpts < 0) numpts = coords->getNum() - startidx;
+  if (numpts <= 0) {
+    if (this->vertexProperty.getValue()) state->pop();
+    return;
+  }
+
+  const int numMarkerIndices = this->markerIndex.getNum();
+
+  // Get material color
+  const SbColor & diffuse = SoLazyElement::getDiffuse(state, 0);
+  int numDiffuse = SoLazyElement::getInstance(state)->getNumDiffuse();
+  Binding mbind = this->findMaterialBinding(state);
+
+  SbMatrix modelMatrix = SoModelMatrixElement::get(state);
+
+  for (int i = 0; i < numpts; i++) {
+    int midx = (numMarkerIndices == 1) ? 0 : SbMin(i, numMarkerIndices - 1);
+    int markerIdx = this->markerIndex[midx];
+    if (markerIdx == NONE) continue;
+
+    // Get marker bitmap
+    SbVec2s msize;
+    const unsigned char * mbytes = NULL;
+    SbBool isLSB = FALSE;
+    if (!SoMarkerSet::getMarker(markerIdx, msize, mbytes, isLSB)) continue;
+    if (!mbytes || msize[0] <= 0 || msize[1] <= 0) continue;
+
+    int mw = msize[0], mh = msize[1];
+
+    // Get per-vertex color
+    SbColor vertColor = diffuse;
+    if (mbind == PER_VERTEX && i < numDiffuse) {
+      vertColor = SoLazyElement::getDiffuse(state, i);
+    }
+    unsigned char cr = (unsigned char)(vertColor[0] * 255.0f);
+    unsigned char cg = (unsigned char)(vertColor[1] * 255.0f);
+    unsigned char cb = (unsigned char)(vertColor[2] * 255.0f);
+
+    // Unpack 1-bit bitmap to RGBA.
+    // Row stride depends on GL_UNPACK_ALIGNMENT (4 for built-in markers,
+    // 1 for custom). Since getMarker() doesn't expose alignment, compute
+    // the stride as the data bytes per row rounded up to 4-byte alignment
+    // for built-in markers (which are all 9x9 with align=4).
+    int texBytes = mw * mh * 4;
+    unsigned char * pixels = static_cast<unsigned char *>(
+      action->allocateGeometryStorage(texBytes));
+
+    int dataPerRow = (mw + 7) / 8;
+    // Built-in markers use 4-byte aligned rows; custom markers use 1-byte.
+    // Heuristic: if index < NUM_MARKERS, use align=4; else align=1.
+    int rowStride = (markerIdx < NUM_MARKERS)
+      ? ((dataPerRow + 3) & ~3)  // align to 4
+      : dataPerRow;              // align to 1
+    for (int y = 0; y < mh; y++) {
+      for (int x = 0; x < mw; x++) {
+        int byteIdx = y * rowStride + (x / 8);
+        int bitIdx = 7 - (x % 8);  // MSB first
+        bool set = (mbytes[byteIdx] & (1 << bitIdx)) != 0;
+        int pIdx = (y * mw + x) * 4;
+        if (set) {
+          pixels[pIdx + 0] = cr;
+          pixels[pIdx + 1] = cg;
+          pixels[pIdx + 2] = cb;
+          pixels[pIdx + 3] = 255;
+        } else {
+          pixels[pIdx + 0] = 0;
+          pixels[pIdx + 1] = 0;
+          pixels[pIdx + 2] = 0;
+          pixels[pIdx + 3] = 0;
+        }
+      }
+    }
+
+    // Get vertex position
+    SbVec3f pos = coords->get3(startidx + i);
+
+    // Build billboard command
+    SoRenderCommand & cmd = action->getMutableDrawList().emplaceCommand();
+
+    float * positions = static_cast<float *>(
+      action->allocateGeometryStorage(4 * 3 * sizeof(float)));
+    float * texcoords = static_cast<float *>(
+      action->allocateGeometryStorage(4 * 4 * sizeof(float)));
+
+    for (int v = 0; v < 4; v++) {
+      positions[v * 3 + 0] = pos[0];
+      positions[v * 3 + 1] = pos[1];
+      positions[v * 3 + 2] = pos[2];
+    }
+    // Triangle strip: BL, BR, TL, TR
+    texcoords[0]  = 0; texcoords[1]  = 0; texcoords[2]  = 0; texcoords[3]  = 0;
+    texcoords[4]  = 1; texcoords[5]  = 0; texcoords[6]  = 0; texcoords[7]  = 0;
+    texcoords[8]  = 0; texcoords[9]  = 1; texcoords[10] = 0; texcoords[11] = 0;
+    texcoords[12] = 1; texcoords[13] = 1; texcoords[14] = 0; texcoords[15] = 0;
+
+    cmd.geometry.positions = positions;
+    cmd.geometry.normals = NULL;
+    cmd.geometry.colors = NULL;
+    cmd.geometry.indices = NULL;
+    cmd.geometry.texcoords = texcoords;
+    cmd.geometry.vertexCount = 4;
+    cmd.geometry.indexCount = 0;
+    cmd.geometry.vertexStride = sizeof(float) * 3;
+    cmd.geometry.texcoordStride = sizeof(float) * 4;
+    cmd.geometry.topology = SO_TOPOLOGY_TRIANGLE_STRIP;
+
+    cmd.modelMatrix = modelMatrix;
+
+    SoModernIR::fillMaterialFromState(state, cmd.material);
+    SoModernIR::fillRenderStateFromState(state, cmd.state);
+
+    cmd.material.texture.pixels = pixels;
+    cmd.material.texture.width = mw;
+    cmd.material.texture.height = mh;
+    cmd.material.texture.numComponents = 4;
+    cmd.material.flags |= 0x1 | 0x2;  // has texture + billboard
+
+    cmd.pass = SO_RENDERPASS_OPAQUE;
+    cmd.lightingHandle = 0;
+    cmd.pipelineKey = 0;
+    cmd.sortKey = 0;
+    cmd.userData = this;
+  }
+
+  if (this->vertexProperty.getValue()) state->pop();
+
+  // Emit a batched GL_POINTS command for GPU picking and selection overlay.
+  // The base class generatePrimitives() produces a single multi-vertex point
+  // command that the selection system can reference by element index.
+  inherited::render(action);
 }
 
 // ----------------------------------------------------------------------------------------------------
