@@ -644,8 +644,12 @@ appendCacheDrawCommands(const SoPrimitiveVertexCache * cache,
   SoModernIR::fillRenderStateFromState(state, cmd.state);
   cmd.modelMatrix = SoModelMatrixElement::get(state);
 
-  const bool transparent = SoModernIR::isMaterialTransparent(cmd.material);
-  cmd.pass = transparent ? SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
+  if (!cmd.state.depth.enabled) {
+    cmd.pass = SO_RENDERPASS_OVERLAY;
+  } else {
+    const bool transparent = SoModernIR::isMaterialTransparent(cmd.material);
+    cmd.pass = transparent ? SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
+  }
   cmd.lightingHandle = 0;
   cmd.pipelineKey = cmd.shaderProgram ? reinterpret_cast<uint64_t>(cmd.shaderProgram) : 0;
   cmd.sortKey = SoIRComputeSortKey(cmd,

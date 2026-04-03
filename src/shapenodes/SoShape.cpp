@@ -323,8 +323,14 @@ public:
       }
     }
 
-    cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
-      SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
+    // Annotation commands (depth test disabled) render last, on top of
+    // all other geometry — matching legacy SoAnnotation::GLRender behavior.
+    if (!cmd.state.depth.enabled) {
+      cmd.pass = SO_RENDERPASS_OVERLAY;
+    } else {
+      cmd.pass = SoModernIR::isMaterialTransparent(cmd.material) ?
+        SO_RENDERPASS_TRANSPARENT : SO_RENDERPASS_OPAQUE;
+    }
     cmd.lightingHandle = 0;
     cmd.pipelineKey = 0;
     cmd.sortKey = SoIRComputeSortKey(cmd,

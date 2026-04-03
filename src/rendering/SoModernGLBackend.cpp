@@ -546,6 +546,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
+    // Per-command depth state (SoAnnotation disables depth test)
+    if (!cmd.state.depth.enabled) {
+      glDisable(GL_DEPTH_TEST);
+    }
+
     // Flat (unlit) rendering for points, lines, and BASE_COLOR materials.
     // Points/lines have zero normals; BASE_COLOR materials use emissive
     // as the display color (e.g. rotation center sphere, annotations).
@@ -673,6 +678,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
       glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
+    if (!cmd.state.depth.enabled) {
+      glEnable(GL_DEPTH_TEST);
+    }
     if (prim == GL_POINTS || fillMode == 2) {
       glDisable(GL_POINT_SMOOTH);
       glDisable(GL_BLEND);
@@ -692,8 +700,9 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
 
-    if (!inTransparent && cmd.pass == SO_RENDERPASS_TRANSPARENT) {
-      // Switch to transparent state
+    if (!inTransparent && (cmd.pass == SO_RENDERPASS_TRANSPARENT
+                           || cmd.pass == SO_RENDERPASS_OVERLAY)) {
+      // Switch to transparent/overlay state
       glDepthMask(GL_FALSE);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
