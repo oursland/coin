@@ -1872,6 +1872,12 @@ SoRenderManager::getModernBackend(void) const
   return PRIVATE(this)->modernBackend;
 }
 
+SoModernRenderAction *
+SoRenderManager::getModernRenderAction(void) const
+{
+  return PRIVATE(this)->modernAction;
+}
+
 uint32_t
 SoRenderManager::gpuPick(int x, int y, int pickRadius) const
 {

@@ -190,6 +190,9 @@ public:
   /// Used for GPU picking via backend->pick().
   class SoRenderBackend * getModernBackend(void) const;
 
+  /// Access the modern render action (NULL if not created yet).
+  class SoModernRenderAction * getModernRenderAction(void) const;
+
   /// GPU pick at pixel coordinates using the modern backend's ID buffer.
   /// Returns the pick LUT index (1-based) or 0 for no hit.
   /// Coordinates are in OpenGL convention (origin at bottom-left).
