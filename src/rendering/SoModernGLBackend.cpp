@@ -693,6 +693,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // unsorted, in draw list order. Then clear depth so main scene renders on top.
   int bgCount = params.bgCommandCount;
   if (bgCount > 0) {
+    // Background commands use identity view/proj (gradient geometry is
+    // already in NDC space: -1..1 on each axis). Override uniforms.
+    SbMatrix identityMat;
+    identityMat.makeIdentity();
+    SbMat identity;
+    identityMat.getValue(identity);
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &identity[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &identity[0][0]);
+
     glDepthMask(GL_FALSE);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
@@ -701,6 +710,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
     glEnable(GL_DEPTH_TEST);
     glClear(GL_DEPTH_BUFFER_BIT);
+
+    // Restore main camera view/proj
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
   }
 
   // Main scene: sorted opaque front-to-back, then transparent back-to-front,
