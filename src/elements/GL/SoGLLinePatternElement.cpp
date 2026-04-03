@@ -96,6 +96,7 @@ SoGLLinePatternElement::push(SoState * state)
     this->getNextInStack();
 
   this->data = prev->data;
+  this->state = state;
   // capture element since we might or might not change the GL state
   prev->capture(state);
 }
