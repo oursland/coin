@@ -55,6 +55,10 @@ public:
   virtual void apply(SoPath * path);
   virtual void apply(const SoPathList & pathlist, SbBool obeysrules = FALSE);
 
+  /// Traverse an additional scene root without clearing the draw list.
+  /// Commands from this traversal are appended to the existing draw list.
+  void traverseAdditionalRoot(SoNode * root);
+
   // Access to generated IR for the current frame
   const SoDrawList & getDrawList(void) const { return this->drawlist; }
   SoDrawList & getMutableDrawList() { return this->drawlist; }

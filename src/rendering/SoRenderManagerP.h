@@ -132,6 +132,8 @@ public:
   SoModernRenderAction * overlayAction;  // Separate action for foreground overlays
   SoRenderBackend * modernBackend;
   SbBool modernEnabled;
+  SoNode * modernBackgroundRoot = NULL;
+  int modernBgCommandCount = 0;
   int modernFrameCounter;
   bool drawListValid = false;
   bool hasCameraDependentShapes = false;

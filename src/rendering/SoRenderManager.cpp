@@ -562,7 +562,21 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setCamera(PRIVATE(this)->camera);
 
   if (!PRIVATE(this)->drawListValid) {
-    action->apply(PRIVATE(this)->scene);
+    // Traverse background root first (gradient, grid). These commands
+    // are at the start of the draw list. The backend renders them before
+    // clearing the depth buffer and rendering the main scene.
+    PRIVATE(this)->modernBgCommandCount = 0;
+    if (PRIVATE(this)->modernBackgroundRoot) {
+      action->apply(PRIVATE(this)->modernBackgroundRoot);
+      PRIVATE(this)->modernBgCommandCount = action->getDrawList().getNumCommands();
+    }
+
+    // Traverse main scene — appends to draw list after background
+    if (PRIVATE(this)->modernBgCommandCount > 0) {
+      action->traverseAdditionalRoot(PRIVATE(this)->scene);
+    } else {
+      action->apply(PRIVATE(this)->scene);
+    }
 
     if (PRIVATE(this)->camera) {
       float aspect = vp.getViewportAspectRatio();
@@ -612,6 +626,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
                | (PRIVATE(this)->interactive ? 2u : 0u);
   params.state = action->getState();
   params.contextId = SoGLCacheContextElement::get(action->getState());
+  params.bgCommandCount = PRIVATE(this)->modernBgCommandCount;
 
   backend->render(list, params);
 
@@ -1876,6 +1891,24 @@ SoModernRenderAction *
 SoRenderManager::getModernRenderAction(void) const
 {
   return PRIVATE(this)->modernAction;
+}
+
+void
+SoRenderManager::setModernBackgroundRoot(SoNode * root)
+{
+  if (PRIVATE(this)->modernBackgroundRoot) {
+    PRIVATE(this)->modernBackgroundRoot->unref();
+  }
+  PRIVATE(this)->modernBackgroundRoot = root;
+  if (root) {
+    root->ref();
+  }
+}
+
+SoNode *
+SoRenderManager::getModernBackgroundRoot(void) const
+{
+  return PRIVATE(this)->modernBackgroundRoot;
 }
 
 uint32_t

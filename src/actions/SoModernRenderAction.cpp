@@ -200,6 +200,17 @@ SoModernRenderAction::apply(const SoPathList & pathlist, SbBool obeysrules)
 }
 
 void
+SoModernRenderAction::traverseAdditionalRoot(SoNode * root)
+{
+  // Don't clear draw list or reset frame resources — append to existing
+  if (!root) return;
+  this->state->push();
+  SoViewportRegionElement::set(this->state, this->vpRegion);
+  this->traverse(root);
+  this->state->pop();
+}
+
+void
 SoModernRenderAction::beginTraversal(SoNode * node)
 {
   SoViewportRegionElement::set(this->state, this->vpRegion);

@@ -139,9 +139,11 @@ struct SoRenderParams {
   */
   uint32_t           flags;
   /*!
-    \brief Reserved for future expansion – keeps struct 16-byte aligned.
+    \brief Number of commands at the start of the draw list that are
+    background (e.g. gradient). The backend renders these first, then
+    clears the depth buffer before rendering the main scene.
   */
-  uint32_t           reserved;
+  int                bgCommandCount;
 };
 
 /*!

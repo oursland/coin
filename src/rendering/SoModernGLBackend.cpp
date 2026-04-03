@@ -689,7 +689,22 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   // Iterate in sorted order: opaque front-to-back, then transparent back-to-front.
   // The sortedOrder array encodes pass type in the sort key, so opaque commands
-  // come first, then transparent. We switch GL state at the boundary.
+  // Background pass: render background commands (gradient, etc.) first,
+  // unsorted, in draw list order. Then clear depth so main scene renders on top.
+  int bgCount = params.bgCommandCount;
+  if (bgCount > 0) {
+    glDepthMask(GL_FALSE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    for (int i = 0; i < bgCount && i < count; ++i) {
+      drawCached(drawlist.getCommand(i));
+    }
+    glEnable(GL_DEPTH_TEST);
+    glClear(GL_DEPTH_BUFFER_BIT);
+  }
+
+  // Main scene: sorted opaque front-to-back, then transparent back-to-front,
+  // then overlay (annotations) last.
   const auto & order = drawlist.getSortedOrder();
   bool inTransparent = false;
 
@@ -698,6 +713,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   for (int si = 0; si < count; ++si) {
     int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
+    // Skip background commands — already rendered above
+    if (ci < bgCount) continue;
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
 
     if (!inTransparent && (cmd.pass == SO_RENDERPASS_TRANSPARENT
