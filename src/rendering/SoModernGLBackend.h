@@ -20,7 +20,6 @@ struct CachedGPUCommand {
   GLuint colorVBO = 0;
   GLuint texcoordVBO = 0;
   GLuint textureId = 0;  // GL texture for embedded textures (SoImage)
-  GLuint texVAO = 0;     // textured pass VAO (pos + texcoord)
   GLuint idxVBO = 0;
   GLuint vao = 0;       // visual pass VAO (pos + norm + color + idx)
   GLuint idVAO = 0;     // ID pass VAO (pos + idColor + idx)
@@ -122,32 +121,24 @@ private:
 
   SoRenderBackendInitParams storedparams;
 
-  // Main shader (no texture support — macOS requires separate program)
+  // Unified shader program (lit + flat + billboard + textured)
   GLuint shaderProgram = 0;
   GLint  uViewLocation = -1;
   GLint  uProjLocation = -1;
   GLint  uModelLocation = -1;
   GLint  uColorLocation = -1;
-  GLint  uEmissiveLocation = -1;
+  GLint  uRenderModeLocation = -1;
   GLint  uEmissiveColorLocation = -1;
   GLint  uUseVertexColorLocation = -1;
+  GLint  uTextureLocation = -1;
+  GLint  uTexModColorLocation = -1;
+  GLint  uQuadCenterLocation = -1;
+  GLint  uTexSizeLocation = -1;
+  GLint  uVpSizeLocation = -1;
   GLint posLoc = -1;
   GLint normLoc = -1;
   GLint colorLoc = -1;
-
-  // Texture shader (separate program for textured commands)
-  GLuint texShaderProgram = 0;
-  GLint  texUViewLocation = -1;
-  GLint  texUProjLocation = -1;
-  GLint  texUModelLocation = -1;
-  GLint  texUTextureLocation = -1;
-  GLint  texUQuadCenterLocation = -1;
-  GLint  texUTexSizeLocation = -1;
-  GLint  texUVpSizeLocation = -1;
-  GLint  texUBillboardLocation = -1;
-  GLint  texUModColorLocation = -1;
-  GLint  texPosLoc = -1;
-  GLint  texTexcoordLoc = -1;
+  GLint texcoordLoc = -1;
 
   // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
   // Two commands may share the same coordinate data but have different

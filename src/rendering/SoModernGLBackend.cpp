@@ -207,10 +207,6 @@ SoModernGLBackend::shutdown()
     glDeleteProgram(this->shaderProgram);
     this->shaderProgram = 0;
   }
-  if (this->texShaderProgram) {
-    glDeleteProgram(this->texShaderProgram);
-    this->texShaderProgram = 0;
-  }
   this->setInitialized(FALSE);
   this->emitLog("shutdown");
 }
@@ -312,43 +308,13 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
-
-    // Build texture VAO
-    if (entry.texVAO == 0) glGenVertexArrays(1, &entry.texVAO);
-    glBindVertexArray(entry.texVAO);
-    if (this->texPosLoc >= 0 && entry.posVBO) {
-      glBindBuffer(GL_ARRAY_BUFFER, entry.posVBO);
-      glEnableVertexAttribArray(this->texPosLoc);
-      glVertexAttribPointer(this->texPosLoc, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
-    }
-    if (this->texTexcoordLoc >= 0) {
-      glBindBuffer(GL_ARRAY_BUFFER, entry.texcoordVBO);
-      glEnableVertexAttribArray(this->texTexcoordLoc);
-      glVertexAttribPointer(this->texTexcoordLoc, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-    }
-    if (entry.idxVBO) {
-      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
-    }
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
   }
   else {
     // No texture on this command — clean up stale texture state from
     // a previous command that used the same cache entry (pool address reuse).
     if (entry.textureId) {
-      static int cleanDbg = 0;
-      if (cleanDbg < 5) {
-        cleanDbg++;
-        fprintf(stderr, "TEXCLEAN: clearing stale textureId=%u texVAO=%u for verts=%u topo=%d\n",
-                entry.textureId, entry.texVAO, cmd.geometry.vertexCount, cmd.geometry.topology);
-      }
       glDeleteTextures(1, &entry.textureId);
       entry.textureId = 0;
-    }
-    if (entry.texVAO) {
-      glDeleteVertexArrays(1, &entry.texVAO);
-      entry.texVAO = 0;
     }
     if (entry.texcoordVBO) {
       glDeleteBuffers(1, &entry.texcoordVBO);
@@ -420,6 +386,19 @@ SoModernGLBackend::setupVisualVAO(CachedGPUCommand & entry,
     }
   }
 
+  // Texcoord attribute (for textured commands — billboard/world-space)
+  if (this->texcoordLoc >= 0) {
+    if (entry.texcoordVBO) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.texcoordVBO);
+      glEnableVertexAttribArray(this->texcoordLoc);
+      glVertexAttribPointer(this->texcoordLoc, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    }
+    else {
+      glDisableVertexAttribArray(this->texcoordLoc);
+      glVertexAttrib2f(this->texcoordLoc, 0.0f, 0.0f);
+    }
+  }
+
   // Index buffer
   if (entry.idxVBO) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, entry.idxVBO);
@@ -438,7 +417,6 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
   if (entry.colorVBO) { glDeleteBuffers(1, &entry.colorVBO); entry.colorVBO = 0; }
   if (entry.texcoordVBO) { glDeleteBuffers(1, &entry.texcoordVBO); entry.texcoordVBO = 0; }
   if (entry.textureId) { glDeleteTextures(1, &entry.textureId); entry.textureId = 0; }
-  if (entry.texVAO) { glDeleteVertexArrays(1, &entry.texVAO); entry.texVAO = 0; }
   if (entry.idxVBO) { glDeleteBuffers(1, &entry.idxVBO); entry.idxVBO = 0; }
   if (entry.vao) { glDeleteVertexArrays(1, &entry.vao); entry.vao = 0; }
   if (entry.idVAO) { glDeleteVertexArrays(1, &entry.idVAO); entry.idVAO = 0; }
@@ -534,7 +512,7 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
   // as the display color (e.g. rotation center sphere, annotations).
   bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP
                     || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
-  glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
+  glUniform1f(this->uRenderModeLocation, flatColor ? 1.0f : 0.0f);
 
   // Per-command emissive color for Blinn-Phong (added to lighting result)
   const SbVec4f & ec = cmd.material.emissive;
@@ -583,24 +561,12 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glPolygonOffset(oFactor, oUnits);
   }
 
-  // Textured commands use a separate shader program
-  bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
-                     && this->texShaderProgram != 0);
+  // Textured commands: set renderMode and bind texture (same shader program)
+  bool isTextured = (entry.textureId != 0 && entry.texcoordVBO != 0);
   if (isTextured) {
     bool isBillboard = (cmd.material.flags & SO_MAT_IS_BILLBOARD) != 0;
-    glUseProgram(this->texShaderProgram);
-    if (cmd.pass == SO_RENDERPASS_OVERLAY) {
-      SbMat cmdViewMat, cmdProjMat;
-      cmd.viewMatrix.getValue(cmdViewMat);
-      cmd.projMatrix.getValue(cmdProjMat);
-      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
-      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
-    } else {
-      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
-    }
-    glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-    glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
+    // renderMode: 2=billboard, 3=world-space textured
+    glUniform1f(this->uRenderModeLocation, isBillboard ? 2.0f : 3.0f);
 
     if (isBillboard) {
       // Compute quad center from vertex positions (average of all vertices)
@@ -613,38 +579,37 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
         cx += p[0]; cy += p[1]; cz += p[2];
       }
       float n = static_cast<float>(cmd.geometry.vertexCount);
-      glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
+      glUniform3f(this->uQuadCenterLocation, cx / n, cy / n, cz / n);
 
       // Texture pixel size and viewport size
-      glUniform2f(this->texUTexSizeLocation,
+      glUniform2f(this->uTexSizeLocation,
                   static_cast<float>(cmd.material.texture.width),
                   static_cast<float>(cmd.material.texture.height));
       SbVec2s vpSz = params.viewport.getViewportSizePixels();
-      glUniform2f(this->texUVpSizeLocation,
+      glUniform2f(this->uVpSizeLocation,
                   static_cast<float>(vpSz[0]),
                   static_cast<float>(vpSz[1]));
     }
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, entry.textureId);
-    glUniform1i(this->texUTextureLocation, 0);
+    glUniform1i(this->uTextureLocation, 0);
     // Modulate texture with diffuse color (MODULATE mode for NaviCube labels).
     // Billboard textures (SoImage, SoText2) use white modulation (pass-through).
     const SbVec4f & diff = cmd.material.diffuse;
     if (isBillboard) {
-      glUniform4f(this->texUModColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
+      glUniform4f(this->uTexModColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
     } else {
-      glUniform4f(this->texUModColorLocation, diff[0], diff[1], diff[2], diff[3]);
+      glUniform4f(this->uTexModColorLocation, diff[0], diff[1], diff[2], diff[3]);
     }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     if (isBillboard) {
       glDepthFunc(GL_ALWAYS);  // billboards render on top
     }
-    glBindVertexArray(entry.texVAO);
-  } else {
-    glBindVertexArray(entry.vao);
   }
+
+  glBindVertexArray(entry.vao);
 
   // --- Draw call ---
   if (cmd.geometry.indexCount > 0) {
@@ -660,7 +625,7 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glDisable(GL_BLEND);
     glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_TRUE);
-    glUseProgram(this->shaderProgram);
+    glUniform1f(this->uRenderModeLocation, 0.0f);  // restore to lit mode
   }
 
   if (useOffset) {
@@ -730,7 +695,7 @@ SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
   glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
   // Default: lighting enabled
-  glUniform1f(this->uEmissiveLocation, 0.0f);
+  glUniform1f(this->uRenderModeLocation, 0.0f);
 }
 
 void
@@ -854,7 +819,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
   glDepthFunc(GL_LEQUAL);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  glUniform1f(this->uEmissiveLocation, 1.0f);
+  glUniform1f(this->uRenderModeLocation, 1.0f);
 
   // Helper: draw a sub-range or whole command for selection overlay
   auto drawElementRange = [](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
@@ -914,7 +879,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
     }
 
     // Bind cached VAO (has pos + norm + idx already set up).
-    // For emissive overlay, normals are ignored by the shader (u_emissive > 0.5).
+    // For flat overlay, normals are ignored by the shader (u_renderMode == 1).
     glBindVertexArray(entry.vao);
 
     if (hasSelection) {
@@ -938,7 +903,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
   }
 
   // Restore default state
-  glUniform1f(this->uEmissiveLocation, 0.0f);
+  glUniform1f(this->uRenderModeLocation, 0.0f);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
@@ -1075,41 +1040,79 @@ SoModernGLBackend::logFrameStats(const SoDrawList & drawlist,
 bool
 SoModernGLBackend::createShaders()
 {
-  // Blinn-Phong shader — view-space headlight, optional per-vertex color
+  // Unified shader — Blinn-Phong + flat + billboard + textured
+  // u_renderMode: 0=lit, 1=flat/unlit, 2=textured billboard, 3=textured world-space
   static const char * vertexSource =
     "#version 120\n"
     "attribute vec3 a_position;\n"
     "attribute vec3 a_normal;\n"
     "attribute vec4 a_color;\n"
+    "attribute vec2 a_texcoord;\n"
     "uniform mat4 u_proj;\n"
     "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
     "uniform vec4 u_color;\n"
     "uniform float u_useVertexColor;\n"
+    "uniform float u_renderMode;\n"
+    // Billboard uniforms (mode 2)
+    "uniform vec3 u_quadCenter;\n"
+    "uniform vec2 u_texSize;\n"
+    "uniform vec2 u_vpSize;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
+    "varying vec2 v_texcoord;\n"
     "void main() {\n"
-    "  vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
-    "  vec4 eyePos = u_view * worldPos;\n"
-    "  v_eyePos = eyePos.xyz;\n"
-    "  v_eyeNormal = mat3(u_view) * mat3(u_model) * a_normal;\n"
-    "  gl_Position = u_proj * eyePos;\n"
     "  v_color = (u_useVertexColor > 0.5) ? a_color : u_color;\n"
+    "  v_texcoord = a_texcoord;\n"
+    "  if (u_renderMode > 1.5 && u_renderMode < 2.5) {\n"
+    // Billboard: project center, offset by pixel coords
+    "    vec4 centerClip = u_proj * u_view * u_model * vec4(u_quadCenter, 1.0);\n"
+    "    vec2 pixelOffset = (a_texcoord - vec2(0.5)) * u_texSize;\n"
+    "    vec2 ndcOffset = 2.0 * pixelOffset / u_vpSize;\n"
+    "    gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
+    "    v_eyePos = vec3(0.0);\n"
+    "    v_eyeNormal = vec3(0.0, 0.0, 1.0);\n"
+    "  } else {\n"
+    "    vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
+    "    vec4 eyePos = u_view * worldPos;\n"
+    "    v_eyePos = eyePos.xyz;\n"
+    "    v_eyeNormal = mat3(u_view) * mat3(u_model) * a_normal;\n"
+    "    gl_Position = u_proj * eyePos;\n"
+    "  }\n"
     "}\n";
 
   static const char * fragmentSource =
     "#version 120\n"
-    "uniform float u_emissive;\n"
+    "uniform float u_renderMode;\n"
     "uniform vec3 u_emissiveColor;\n"
+    "uniform sampler2D u_texture;\n"
+    "uniform vec4 u_texModColor;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
+    "varying vec2 v_texcoord;\n"
     "void main() {\n"
-    "  if (u_emissive > 0.5) {\n"
+    // Mode 1: flat/unlit (BASE_COLOR, points, lines, selection overlay)
+    "  if (u_renderMode > 0.5 && u_renderMode < 1.5) {\n"
     "    gl_FragColor = v_color;\n"
     "    return;\n"
     "  }\n"
+    // Mode 2: textured billboard
+    "  if (u_renderMode > 1.5 && u_renderMode < 2.5) {\n"
+    "    vec4 c = texture2D(u_texture, v_texcoord);\n"
+    "    if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
+    "    gl_FragColor = c * u_texModColor;\n"
+    "    return;\n"
+    "  }\n"
+    // Mode 3: textured world-space (modulate with material)
+    "  if (u_renderMode > 2.5) {\n"
+    "    vec4 c = texture2D(u_texture, v_texcoord);\n"
+    "    if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
+    "    gl_FragColor = c * u_texModColor;\n"
+    "    return;\n"
+    "  }\n"
+    // Mode 0: Blinn-Phong lit
     "  vec3 N = normalize(v_eyeNormal);\n"
     "  if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) N = -N;\n"
     "  vec3 L = vec3(0.0, 0.0, 1.0);\n"
@@ -1132,82 +1135,49 @@ SoModernGLBackend::createShaders()
     return FALSE;
   }
 
-  this->shaderProgram = coin_link_program(vs, fs);
+  // Bind attribute locations explicitly before linking — the macOS GLSL 1.20
+  // compiler may reassign locations when a new attribute (a_texcoord) is added,
+  // and we need stable locations that match the VAO setup.
+  GLuint prog = glCreateProgram();
+  glAttachShader(prog, vs);
+  glAttachShader(prog, fs);
+  glBindAttribLocation(prog, 0, "a_position");
+  glBindAttribLocation(prog, 1, "a_normal");
+  glBindAttribLocation(prog, 2, "a_color");
+  glBindAttribLocation(prog, 3, "a_texcoord");
+  glLinkProgram(prog);
+  GLint linkStatus = GL_FALSE;
+  glGetProgramiv(prog, GL_LINK_STATUS, &linkStatus);
+  if (linkStatus == GL_FALSE) {
+    GLint length = 0;
+    glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &length);
+    if (length > 0) {
+      std::string log(length, '\0');
+      glGetProgramInfoLog(prog, length, &length, &log[0]);
+      SoDebugError::postInfo("SoModernGLBackend::linkProgram", "%s", log.c_str());
+    }
+    glDeleteProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    return FALSE;
+  }
+  this->shaderProgram = prog;
   glDeleteShader(vs);
   glDeleteShader(fs);
-  if (this->shaderProgram == 0) return FALSE;
 
   this->uViewLocation = glGetUniformLocation(this->shaderProgram, "u_view");
   this->uProjLocation = glGetUniformLocation(this->shaderProgram, "u_proj");
   this->uModelLocation = glGetUniformLocation(this->shaderProgram, "u_model");
   this->uColorLocation = glGetUniformLocation(this->shaderProgram, "u_color");
-  this->uEmissiveLocation = glGetUniformLocation(this->shaderProgram, "u_emissive");
+  this->uRenderModeLocation = glGetUniformLocation(this->shaderProgram, "u_renderMode");
   this->uEmissiveColorLocation = glGetUniformLocation(this->shaderProgram, "u_emissiveColor");
   this->uUseVertexColorLocation = glGetUniformLocation(this->shaderProgram, "u_useVertexColor");
-
-  // Texture shader — screen-space billboard for SoImage constraint icons.
-  // The vertex positions come from getQuad() which are object-space camera-
-  // aligned, but we override them: project the quad center to clip space,
-  // then offset each vertex by its texcoord to create a pixel-sized quad.
-  // u_texSize = (width, height) in pixels; u_vpSize = viewport size in pixels.
-  static const char * texVertexSource =
-    "#version 120\n"
-    "attribute vec3 a_position;\n"
-    "attribute vec2 a_texcoord;\n"
-    "uniform mat4 u_proj;\n"
-    "uniform mat4 u_view;\n"
-    "uniform mat4 u_model;\n"
-    "uniform vec3 u_quadCenter;\n"
-    "uniform vec2 u_texSize;\n"
-    "uniform vec2 u_vpSize;\n"
-    "uniform float u_billboard;\n"
-    "varying vec2 v_texcoord;\n"
-    "varying float v_billboard;\n"
-    "void main() {\n"
-    "  v_billboard = u_billboard;\n"
-    "  if (u_billboard > 0.5) {\n"
-    "    vec4 centerClip = u_proj * u_view * u_model * vec4(u_quadCenter, 1.0);\n"
-    "    vec2 pixelOffset = (a_texcoord - vec2(0.5)) * u_texSize;\n"
-    "    vec2 ndcOffset = 2.0 * pixelOffset / u_vpSize;\n"
-    "    gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
-    "  } else {\n"
-    "    gl_Position = u_proj * u_view * u_model * vec4(a_position, 1.0);\n"
-    "  }\n"
-    "  v_texcoord = a_texcoord;\n"
-    "}\n";
-
-  static const char * texFragmentSource =
-    "#version 120\n"
-    "uniform sampler2D u_texture;\n"
-    "uniform vec4 u_texModColor;\n"
-    "varying vec2 v_texcoord;\n"
-    "varying float v_billboard;\n"
-    "void main() {\n"
-    "  vec4 c = texture2D(u_texture, v_texcoord);\n"
-    "  if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
-    "  gl_FragColor = c * u_texModColor;\n"
-    "}\n";
-
-  GLuint tvs = coin_compile_shader(GL_VERTEX_SHADER, texVertexSource);
-  GLuint tfs = coin_compile_shader(GL_FRAGMENT_SHADER, texFragmentSource);
-  if (tvs != 0 && tfs != 0) {
-    this->texShaderProgram = coin_link_program(tvs, tfs);
-    if (this->texShaderProgram) {
-      this->texUViewLocation = glGetUniformLocation(this->texShaderProgram, "u_view");
-      this->texUProjLocation = glGetUniformLocation(this->texShaderProgram, "u_proj");
-      this->texUModelLocation = glGetUniformLocation(this->texShaderProgram, "u_model");
-      this->texUTextureLocation = glGetUniformLocation(this->texShaderProgram, "u_texture");
-      this->texUQuadCenterLocation = glGetUniformLocation(this->texShaderProgram, "u_quadCenter");
-      this->texUTexSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_texSize");
-      this->texUVpSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_vpSize");
-      this->texUBillboardLocation = glGetUniformLocation(this->texShaderProgram, "u_billboard");
-      this->texUModColorLocation = glGetUniformLocation(this->texShaderProgram, "u_texModColor");
-      this->texPosLoc = glGetAttribLocation(this->texShaderProgram, "a_position");
-      this->texTexcoordLoc = glGetAttribLocation(this->texShaderProgram, "a_texcoord");
-    }
-  }
-  glDeleteShader(tvs);
-  glDeleteShader(tfs);
+  this->uTextureLocation = glGetUniformLocation(this->shaderProgram, "u_texture");
+  this->uTexModColorLocation = glGetUniformLocation(this->shaderProgram, "u_texModColor");
+  this->uQuadCenterLocation = glGetUniformLocation(this->shaderProgram, "u_quadCenter");
+  this->uTexSizeLocation = glGetUniformLocation(this->shaderProgram, "u_texSize");
+  this->uVpSizeLocation = glGetUniformLocation(this->shaderProgram, "u_vpSize");
+  this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
 
   return TRUE;
 }
