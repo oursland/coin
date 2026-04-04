@@ -789,8 +789,15 @@ SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
   // makes deprecated calls that generate errors in Core Profile)
   while (glGetError() != GL_NO_ERROR) {}
 
-  // Clear depth if requested (used for overlay passes)
-  if (params.flags & SO_PARAM_CLEAR_DEPTH) {
+  // Clear color buffer when requested (single-color background mode,
+  // or first frame). Without this, the framebuffer retains stale content
+  // when no gradient background covers the viewport.
+  if (params.flags & SO_PARAM_CLEAR_WINDOW) {
+    const SbColor4f & cc = params.clearColor;
+    glClearColor(cc[0], cc[1], cc[2], cc[3]);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  }
+  else if (params.flags & SO_PARAM_CLEAR_DEPTH) {
     glClear(GL_DEPTH_BUFFER_BIT);
   }
 

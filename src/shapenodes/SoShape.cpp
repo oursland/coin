@@ -249,21 +249,12 @@ public:
     float * texcoords = static_cast<float *>(
       this->action->allocateGeometryStorage(sizeof(float) * 4 * numverts));
 
-    // Per-vertex colors: check if any vertex captured a non-default color
-    // during appendVertex() (while SoVertexProperty state was pushed).
-    // Also check the current state for multi-diffuse materials.
+    // Per-vertex colors: use the flag set during appendVertex() when
+    // SoVertexProperty state was active (numDiffuse > 1). The state is
+    // popped by generatePrimitives() before we get here, so we can't
+    // re-check numDiffuse — it would show 1 even though colors were captured.
     SoState * state = this->action->getState();
-    int numDiffuse = SoLazyElement::getInstance(state)->getNumDiffuse();
-    bool hasPerVertexColor = (numDiffuse > 1);
-
-    // Colors may have been captured in appendVertex even if numDiffuse
-    // is now 1 (state was popped by SoFaceSet::generatePrimitives).
-    if (!hasPerVertexColor && numverts > 0) {
-      const SbVec4f & c0 = this->vertices[0].color;
-      if (c0[0] != 1.0f || c0[1] != 1.0f || c0[2] != 1.0f || c0[3] != 1.0f) {
-        hasPerVertexColor = true;
-      }
-    }
+    bool hasPerVertexColor = (this->capturedPerVertexColor == TRUE);
 
     float * colors = NULL;
     if (hasPerVertexColor) {
@@ -295,19 +286,8 @@ public:
 
       if (colors) {
         float * cdst = colors + (i * 4);
-        // Use pre-captured color from appendVertex if available,
-        // otherwise look up from current state.
         const SbVec4f & vc = v.color;
-        if (vc[0] != 1.0f || vc[1] != 1.0f || vc[2] != 1.0f || vc[3] != 1.0f) {
-          cdst[0] = vc[0]; cdst[1] = vc[1]; cdst[2] = vc[2]; cdst[3] = vc[3];
-        } else {
-          int idx = v.materialIdx;
-          if (idx < 0) idx = 0;
-          if (idx >= numDiffuse) idx = numDiffuse - 1;
-          const SbColor & dc = SoLazyElement::getDiffuse(state, idx);
-          float tr = SoLazyElement::getTransparency(state, idx);
-          cdst[0] = dc[0]; cdst[1] = dc[1]; cdst[2] = dc[2]; cdst[3] = 1.0f - tr;
-        }
+        cdst[0] = vc[0]; cdst[1] = vc[1]; cdst[2] = vc[2]; cdst[3] = vc[3];
       }
     }
 
@@ -377,6 +357,7 @@ private:
       const SbColor & dc = SoLazyElement::getDiffuse(st, idx);
       float tr = SoLazyElement::getTransparency(st, idx);
       vertex.color.setValue(dc[0], dc[1], dc[2], 1.0f - tr);
+      this->capturedPerVertexColor = TRUE;
     } else {
       vertex.color.setValue(1.0f, 1.0f, 1.0f, 1.0f);
     }
@@ -427,6 +408,7 @@ private:
   SoPrimitiveTopology topology;
   SbBool warnedMixed;
   SbBool useBillboard;
+  SbBool capturedPerVertexColor = FALSE;
   SbBool textureCaptured = FALSE;
   unsigned char * texCopy = NULL;
   int texWidth = 0;
