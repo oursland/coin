@@ -70,6 +70,19 @@ struct SoGeometryDesc {
   } cache;
 };
 
+// --- Material flags (SoMaterialData::flags) ---
+static constexpr uint32_t SO_MAT_HAS_TEXTURE = 0x1;  //!< Command carries embedded texture data
+static constexpr uint32_t SO_MAT_IS_BILLBOARD = 0x2;  //!< Screen-space billboard sizing
+
+// --- Feature flags (SoMaterialData::featureFlags) ---
+static constexpr uint32_t SO_FEAT_BASE_COLOR = 0x1;   //!< Flat/unlit rendering (BASE_COLOR light model)
+
+// --- Render param flags (SoRenderParams::flags) ---
+static constexpr uint32_t SO_PARAM_CLEAR_WINDOW = 1u;
+static constexpr uint32_t SO_PARAM_INTERACTIVE  = 2u;  //!< Camera orbiting/panning — skip ID buffer
+static constexpr uint32_t SO_PARAM_CLEAR_DEPTH  = 4u;  //!< Clear depth buffer before rendering
+static constexpr uint32_t SO_PARAM_SKIP_ID      = 8u;  //!< Skip ID buffer rendering entirely
+
 /*!
   \struct SoMaterialData
   \brief Snapshot of the logical Inventor material state for one draw call.

@@ -634,8 +634,8 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   }
   params.clearColor = PRIVATE(this)->backgroundcolor;
   params.clearDepth = 1.0f;
-  params.flags = (clearwindow ? 1u : 0u)
-               | (PRIVATE(this)->interactive ? 2u : 0u);
+  params.flags = (clearwindow ? SO_PARAM_CLEAR_WINDOW : 0u)
+               | (PRIVATE(this)->interactive ? SO_PARAM_INTERACTIVE : 0u);
   params.state = action->getState();
   params.contextId = SoGLCacheContextElement::get(action->getState());
   params.bgCommandCount = PRIVATE(this)->modernBgCommandCount;

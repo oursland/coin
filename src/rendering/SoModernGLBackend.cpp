@@ -23,6 +23,35 @@
 #include "rendering/SoVertexLayout.h"
 #include "shaders/SoGLShaderProgram.h"
 
+// -----------------------------------------------------------------------
+// Named constants — extracted from magic numbers throughout render()
+// -----------------------------------------------------------------------
+
+// Blinn-Phong lighting coefficients (used in GLSL shader source)
+static constexpr float AMBIENT_COEFF  = 0.25f;
+static constexpr float DIFFUSE_COEFF  = 0.85f;
+static constexpr float SPECULAR_COEFF = 0.12f;
+static constexpr float DEFAULT_SHININESS = 64.0f;
+
+// Alpha thresholds for selection/highlight overlays
+static constexpr float HIGHLIGHT_ALPHA = 0.6f;
+static constexpr float SELECTION_ALPHA = 0.5f;
+
+// Texture alpha discard threshold (shader-side)
+static constexpr float ALPHA_DISCARD_THRESHOLD = 0.3f;
+
+// Minimum point size for highlight overlay (ensures visibility)
+static constexpr float MIN_HIGHLIGHT_POINT_SIZE = 20.0f;
+
+// Cache GC: entries unused for this many frames are destroyed
+static constexpr int CACHE_UNUSED_FRAME_THRESHOLD = 3;
+
+// Safety limit: skip commands with absurd vertex counts
+static constexpr int MAX_VERTEX_COUNT = 10000000;
+
+// Default pick line width / point size when no pick buffer exists
+static constexpr float DEFAULT_PICK_SIZE = 7.0f;
+
 static SbBool
 coin_modern_ir_trace_enabled()
 {
@@ -423,7 +452,7 @@ SoModernGLBackend::gcStaleEntries(int frame)
   for (int i = 0; i < static_cast<int>(gpuCache.size()); i++) {
     auto & entry = gpuCache[i];
     if (entry.posVBO == 0) continue;  // already dead
-    if (frame - entry.lastUsedFrame > 3) {
+    if (frame - entry.lastUsedFrame > CACHE_UNUSED_FRAME_THRESHOLD) {
       ptrToCacheIndex.erase(CacheKey{entry.posKey, entry.idxKey});
       destroyCacheEntry(entry);
       entry.posKey = nullptr;
@@ -467,8 +496,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   if (!this->shaderProgram) return TRUE;
 
-  // Clear depth if requested (bit 2 — used for overlay passes)
-  if (params.flags & 4u) {
+  // Clear depth if requested (used for overlay passes)
+  if (params.flags & SO_PARAM_CLEAR_DEPTH) {
     glClear(GL_DEPTH_BUFFER_BIT);
   }
 
@@ -497,7 +526,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     for (int i = 0; i < count; ++i) {
       const SoRenderCommand & cmd = drawlist.getCommand(i);
       if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) continue;
-      if (cmd.geometry.vertexCount > 10000000) continue;
+      if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) continue;
 
       GLsizei stride = static_cast<GLsizei>(
         cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
@@ -524,7 +553,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // --- Draw lambda: bind cached VAO, set uniforms, draw ---
   auto drawCached = [&](const SoRenderCommand & cmd) {
     if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
-    if (cmd.geometry.vertexCount > 10000000) return;
+    if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) return;
     if (cmd.geometry.indexCount > 0 && !cmd.geometry.indices) return;
 
     auto it = ptrToCacheIndex.find(CacheKey{cmd.geometry.positions, cmd.geometry.indices});
@@ -575,7 +604,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     // Points/lines have zero normals; BASE_COLOR materials use emissive
     // as the display color (e.g. rotation center sphere, annotations).
     bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP
-                      || (cmd.material.featureFlags & 0x1));
+                      || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
     glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
 
     // Per-command emissive color for Blinn-Phong (added to lighting result)
@@ -630,7 +659,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
                        && this->texShaderProgram != 0);
     if (isTextured) {
-      bool isBillboard = (cmd.material.flags & 0x2) != 0;
+      bool isBillboard = (cmd.material.flags & SO_MAT_IS_BILLBOARD) != 0;
       glUseProgram(this->texShaderProgram);
       if (cmd.pass == SO_RENDERPASS_OVERLAY) {
         SbMat cmdViewMat, cmdProjMat;
@@ -805,7 +834,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.geometry.vertexCount)) {
         float ps = cmd.state.raster.pointSize;
         if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
-        glPointSize(std::max(ps, 20.0f));
+        glPointSize(std::max(ps, MIN_HIGHLIGHT_POINT_SIZE));
         glDrawArrays(prim, elemIdx, 1);
       }
       else {
@@ -850,7 +879,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     if (hasSelection) {
       const SbVec4f & sc = cmd.selection.selectionColor;
-      glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 0.5f);
+      glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], SELECTION_ALPHA);
       for (int elem : cmd.selection.selectedElements) {
         drawElementRange(cmd, elem, prim);
       }
@@ -858,7 +887,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     if (hasHighlight) {
       const SbVec4f & hc = cmd.selection.highlightColor;
-      glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], 0.6f);
+      glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], HIGHLIGHT_ALPHA);
       drawElementRange(cmd, hlElem, prim);
     }
 
@@ -880,8 +909,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   // Render ID buffer for GPU picking — skip during interactive navigation
   // (no preselection during orbit/pan/zoom, saves ~11ms per frame)
-  bool interactive = (params.flags & 2u) != 0;
-  bool skipIdBuffer = (params.flags & 8u) != 0;
+  bool interactive = (params.flags & SO_PARAM_INTERACTIVE) != 0;
+  bool skipIdBuffer = (params.flags & SO_PARAM_SKIP_ID) != 0;
   if (pickBuffer && !interactive && !skipIdBuffer) {
     const auto & lut = drawlist.getPickLUT();
     SbVec2s vpSize = params.viewport.getViewportSizePixels();
@@ -1012,10 +1041,10 @@ SoModernGLBackend::createShaders()
     "  vec3 V = normalize(-v_eyePos);\n"
     "  vec3 H = normalize(L + V);\n"
     "  float NdotH = max(dot(N, H), 0.0);\n"
-    "  float spec = pow(NdotH, 64.0);\n"
-    "  vec3 ambient = 0.25 * v_color.rgb;\n"
-    "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"
-    "  vec3 specular = 0.12 * spec * vec3(1.0);\n"
+    "  float spec = pow(NdotH, 64.0);\n"  // DEFAULT_SHININESS
+    "  vec3 ambient = 0.25 * v_color.rgb;\n"  // AMBIENT_COEFF
+    "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"  // DIFFUSE_COEFF
+    "  vec3 specular = 0.12 * spec * vec3(1.0);\n"  // SPECULAR_COEFF
     "  gl_FragColor = vec4(ambient + diffuse + specular + u_emissiveColor, v_color.a);\n"
     "}\n";
 
@@ -1079,7 +1108,7 @@ SoModernGLBackend::createShaders()
     "varying float v_billboard;\n"
     "void main() {\n"
     "  vec4 c = texture2D(u_texture, v_texcoord);\n"
-    "  if (c.a < 0.3) discard;\n"
+    "  if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
     "  gl_FragColor = c * u_texModColor;\n"
     "}\n";
 
@@ -1122,11 +1151,11 @@ SoModernGLBackend::setPickPointSize(float size)
 float
 SoModernGLBackend::getPickLineWidth() const
 {
-  return pickBuffer ? pickBuffer->getPickLineWidth() : 7.0f;
+  return pickBuffer ? pickBuffer->getPickLineWidth() : DEFAULT_PICK_SIZE;
 }
 
 float
 SoModernGLBackend::getPickPointSize() const
 {
-  return pickBuffer ? pickBuffer->getPickPointSize() : 7.0f;
+  return pickBuffer ? pickBuffer->getPickPointSize() : DEFAULT_PICK_SIZE;
 }

@@ -334,9 +334,9 @@ public:
       cmd.material.texture.width = this->texWidth;
       cmd.material.texture.height = this->texHeight;
       cmd.material.texture.numComponents = this->texNC;
-      cmd.material.flags |= 0x1;  // Bit 0 = has texture
+      cmd.material.flags |= SO_MAT_HAS_TEXTURE;
       if (this->useBillboard) {
-        cmd.material.flags |= 0x2;  // Bit 1 = billboard (screen-space sizing)
+        cmd.material.flags |= SO_MAT_IS_BILLBOARD;
       }
     }
 

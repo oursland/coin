@@ -443,7 +443,7 @@ fillMaterialFromState(SoState * state, SoMaterialData & material)
   // Flag BASE_COLOR light model for flat (unlit) rendering
   int lightModel = SoLightModelElement::get(mutableState);
   if (lightModel == SoLightModelElement::BASE_COLOR) {
-    material.featureFlags |= 0x1;
+    material.featureFlags |= SO_FEAT_BASE_COLOR;
   }
   material.ambient.setValue(ambient[0], ambient[1], ambient[2], 1.0f);
   material.specular.setValue(specular[0], specular[1], specular[2], 1.0f);

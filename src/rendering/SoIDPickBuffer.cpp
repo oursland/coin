@@ -431,7 +431,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     if (ci >= static_cast<int>(idColorVBOs.size()) || idColorVBOs[ci] == 0) return;
     if (!cmd.geometry.positions || cmd.geometry.vertexCount == 0) return;
     // Skip textured commands (SoImage) — not pickable
-    if (cmd.material.flags & 0x1) return;
+    if (cmd.material.flags & SO_MAT_HAS_TEXTURE) return;
 
     SbMat modelMat;
     cmd.modelMatrix.getValue(modelMat);
@@ -520,7 +520,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_TRIANGLES &&
         cmd.geometry.topology != SO_TOPOLOGY_TRIANGLE_STRIP) continue;
-    if (cmd.material.flags & 0x1) continue;  // skip textured (SoImage)
+    if (cmd.material.flags & SO_MAT_HAS_TEXTURE) continue;  // skip textured (SoImage)
     drawIdCmd(cmd, ci, GL_TRIANGLES);
   }
 
@@ -533,7 +533,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
         cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
-    if (cmd.material.flags & 0x1) continue;
+    if (cmd.material.flags & SO_MAT_HAS_TEXTURE) continue;
     glLineWidth(std::max(cmd.state.raster.lineWidth, pickLineWidth));
     drawIdCmd(cmd, ci, GL_LINES);
   }
@@ -547,7 +547,7 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.geometry.topology != SO_TOPOLOGY_POINTS) continue;
-    if (cmd.material.flags & 0x1) continue;
+    if (cmd.material.flags & SO_MAT_HAS_TEXTURE) continue;
     float ps = cmd.state.raster.pointSize;
     if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
     glPointSize(std::max(ps, pickPointSize));
