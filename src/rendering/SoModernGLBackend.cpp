@@ -532,10 +532,14 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     const CachedGPUCommand & entry = gpuCache[it->second];
     if (entry.vao == 0) return;
 
-    // Per-command model matrix
-    SbMat modelMat;
+    // Per-command matrices
+    SbMat modelMat, cmdViewMat, cmdProjMat;
     cmd.modelMatrix.getValue(modelMat);
+    cmd.viewMatrix.getValue(cmdViewMat);
+    cmd.projMatrix.getValue(cmdProjMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
 
     // Per-command color — use vertex colors if available
     bool hasVertexColors = (entry.colorVBO != 0);
@@ -546,9 +550,18 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
-    // Per-command depth state (SoAnnotation disables depth test)
-    if (!cmd.state.depth.enabled) {
+    // Per-command depth state: for non-overlay commands that individually
+    // disable depth (e.g. constraint depth buffer nodes), handle per-command.
+    // Overlay commands use the overlay pass's depth state instead.
+    if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
       glDisable(GL_DEPTH_TEST);
+    }
+
+    // Per-command backface culling
+    if (cmd.state.raster.cullMode != 0) {
+      glEnable(GL_CULL_FACE);
+      glCullFace(GL_BACK);
+      glFrontFace(GL_CCW);
     }
 
     // Flat (unlit) rendering for points, lines, and BASE_COLOR materials.
@@ -612,8 +625,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (isTextured) {
       bool isBillboard = (cmd.material.flags & 0x2) != 0;
       glUseProgram(this->texShaderProgram);
-      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
+      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
       glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
       glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
 
@@ -643,9 +656,19 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glActiveTexture(GL_TEXTURE0);
       glBindTexture(GL_TEXTURE_2D, entry.textureId);
       glUniform1i(this->texUTextureLocation, 0);
+      // Modulate texture with diffuse color (MODULATE mode for NaviCube labels).
+      // Billboard textures (SoImage, SoText2) use white modulation (pass-through).
+      const SbVec4f & diff = cmd.material.diffuse;
+      if (isBillboard) {
+        glUniform4f(this->texUModColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
+      } else {
+        glUniform4f(this->texUModColorLocation, diff[0], diff[1], diff[2], diff[3]);
+      }
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      glDepthFunc(GL_ALWAYS);
+      if (isBillboard) {
+        glDepthFunc(GL_ALWAYS);  // billboards render on top
+      }
       glBindVertexArray(entry.texVAO);
     } else {
       glBindVertexArray(entry.vao);
@@ -664,9 +687,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glDepthFunc(GL_LEQUAL);
       glDepthMask(GL_TRUE);
       glUseProgram(this->shaderProgram);
-      // Re-upload view/proj for main shader
-      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
+      // Per-command view/proj will be set by the next drawCached call
     }
 
     if (useOffset) {
@@ -678,12 +699,15 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
       glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
-    if (!cmd.state.depth.enabled) {
+    if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
       glEnable(GL_DEPTH_TEST);
     }
     if (prim == GL_POINTS || fillMode == 2) {
       glDisable(GL_POINT_SMOOTH);
       glDisable(GL_BLEND);
+    }
+    if (cmd.state.raster.cullMode != 0) {
+      glDisable(GL_CULL_FACE);
     }
   };
 
@@ -693,15 +717,8 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   // unsorted, in draw list order. Then clear depth so main scene renders on top.
   int bgCount = params.bgCommandCount;
   if (bgCount > 0) {
-    // Background commands use identity view/proj (gradient geometry is
-    // already in NDC space: -1..1 on each axis). Override uniforms.
-    SbMatrix identityMat;
-    identityMat.makeIdentity();
-    SbMat identity;
-    identityMat.getValue(identity);
-    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &identity[0][0]);
-    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &identity[0][0]);
-
+    // Background commands have their own view/proj matrices captured
+    // per-command (identity for gradients, ortho for grids, etc.).
     glDepthMask(GL_FALSE);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
@@ -710,16 +727,13 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
     glEnable(GL_DEPTH_TEST);
     glClear(GL_DEPTH_BUFFER_BIT);
-
-    // Restore main camera view/proj
-    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
   }
 
   // Main scene: sorted opaque front-to-back, then transparent back-to-front,
   // then overlay (annotations) last.
   const auto & order = drawlist.getSortedOrder();
   bool inTransparent = false;
+  bool inOverlay = false;
 
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
@@ -730,13 +744,23 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (ci < bgCount) continue;
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
 
-    if (!inTransparent && (cmd.pass == SO_RENDERPASS_TRANSPARENT
-                           || cmd.pass == SO_RENDERPASS_OVERLAY)) {
-      // Switch to transparent/overlay state
+    if (!inTransparent && cmd.pass == SO_RENDERPASS_TRANSPARENT) {
+      // Switch to transparent state
       glDepthMask(GL_FALSE);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       inTransparent = true;
+    }
+    if (!inOverlay && cmd.pass == SO_RENDERPASS_OVERLAY) {
+      // Switch to overlay state: clear depth so overlays (NaviCube, annotations)
+      // are not occluded by the main scene, but CAN self-occlude.
+      glClear(GL_DEPTH_BUFFER_BIT);
+      glDepthMask(GL_TRUE);
+      glEnable(GL_DEPTH_TEST);
+      glDepthFunc(GL_LEQUAL);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      inOverlay = true;
     }
     drawCached(cmd);
   }
@@ -788,9 +812,13 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     const CachedGPUCommand & entry = gpuCache[it->second];
     if (entry.vao == 0) continue;
 
-    SbMat modelMat;
+    SbMat modelMat, selViewMat, selProjMat;
     cmd.modelMatrix.getValue(modelMat);
+    cmd.viewMatrix.getValue(selViewMat);
+    cmd.projMatrix.getValue(selProjMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &selViewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &selProjMat[0][0]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
@@ -1033,12 +1061,13 @@ SoModernGLBackend::createShaders()
   static const char * texFragmentSource =
     "#version 120\n"
     "uniform sampler2D u_texture;\n"
+    "uniform vec4 u_texModColor;\n"
     "varying vec2 v_texcoord;\n"
     "varying float v_billboard;\n"
     "void main() {\n"
     "  vec4 c = texture2D(u_texture, v_texcoord);\n"
     "  if (c.a < 0.3) discard;\n"
-    "  gl_FragColor = c;\n"
+    "  gl_FragColor = c * u_texModColor;\n"
     "}\n";
 
   GLuint tvs = coin_compile_shader(GL_VERTEX_SHADER, texVertexSource);
@@ -1054,6 +1083,7 @@ SoModernGLBackend::createShaders()
       this->texUTexSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_texSize");
       this->texUVpSizeLocation = glGetUniformLocation(this->texShaderProgram, "u_vpSize");
       this->texUBillboardLocation = glGetUniformLocation(this->texShaderProgram, "u_billboard");
+      this->texUModColorLocation = glGetUniformLocation(this->texShaderProgram, "u_texModColor");
       this->texPosLoc = glGetAttribLocation(this->texShaderProgram, "a_position");
       this->texTexcoordLoc = glGetAttribLocation(this->texShaderProgram, "a_texcoord");
     }

@@ -211,6 +211,8 @@ struct SoRenderCommand {
   SoRenderState    state;
 
   SbMatrix         modelMatrix;
+  SbMatrix         viewMatrix;
+  SbMatrix         projMatrix;
 
   SoRenderPassType pass;
   SoLightingHandle lightingHandle;

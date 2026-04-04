@@ -133,6 +133,7 @@ public:
   SoRenderBackend * modernBackend;
   SbBool modernEnabled;
   SoNode * modernBackgroundRoot = NULL;
+  SoNode * modernForegroundRoot = NULL;
   int modernBgCommandCount = 0;
   int modernFrameCounter;
   bool drawListValid = false;

@@ -123,6 +123,7 @@ private:
   GLint  texUTexSizeLocation = -1;
   GLint  texUVpSizeLocation = -1;
   GLint  texUBillboardLocation = -1;
+  GLint  texUModColorLocation = -1;
   GLint  texPosLoc = -1;
   GLint  texTexcoordLoc = -1;
 

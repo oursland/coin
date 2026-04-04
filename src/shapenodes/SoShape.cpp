@@ -320,6 +320,8 @@ public:
     cmd.geometry.texcoordStride = sizeof(float) * 4;
 
     cmd.modelMatrix = SoModelMatrixElement::get(state);
+    cmd.viewMatrix = SoViewingMatrixElement::get(state);
+    cmd.projMatrix = SoProjectionMatrixElement::get(state);
 
     SoModernIR::fillMaterialFromState(state, cmd.material);
     SoModernIR::fillRenderStateFromState(state, cmd.state);

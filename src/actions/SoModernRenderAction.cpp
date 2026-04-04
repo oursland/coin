@@ -21,8 +21,10 @@
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoCacheElement.h>
 #include <Inventor/elements/SoGLCacheContextElement.h>
+#include <Inventor/elements/SoViewingMatrixElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
 #include <Inventor/elements/SoViewVolumeElement.h>
+#include <Inventor/elements/SoProjectionMatrixElement.h>
 #include <Inventor/elements/SoLinePatternElement.h>
 #include <Inventor/elements/SoMultiTextureImageElement.h>
 #include <Inventor/elements/SoMultiTextureMatrixElement.h>
@@ -88,6 +90,8 @@ SoModernRenderAction::initClass(void)
 
   SO_ENABLE(SoModernRenderAction, SoViewportRegionElement);
   SO_ENABLE(SoModernRenderAction, SoViewVolumeElement);
+  SO_ENABLE(SoModernRenderAction, SoViewingMatrixElement);
+  SO_ENABLE(SoModernRenderAction, SoProjectionMatrixElement);
   SO_ENABLE(SoModernRenderAction, SoMultiTextureImageElement);
   SO_ENABLE(SoModernRenderAction, SoMultiTextureMatrixElement);
   SO_ENABLE(SoModernRenderAction, SoLinePatternElement);

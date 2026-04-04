@@ -15,6 +15,9 @@
 #include <Inventor/elements/SoLineWidthElement.h>
 #include <Inventor/elements/SoPointSizeElement.h>
 #include <Inventor/elements/SoModelMatrixElement.h>
+#include <Inventor/elements/SoProjectionMatrixElement.h>
+#include <Inventor/elements/SoShapeHintsElement.h>
+#include <Inventor/elements/SoViewingMatrixElement.h>
 #include <Inventor/elements/SoMultiTextureEnabledElement.h>
 #include <Inventor/elements/SoPolygonOffsetElement.h>
 #include <Inventor/errors/SoDebugError.h>
@@ -452,7 +455,7 @@ fillMaterialFromState(SoState * state, SoMaterialData & material)
   material.normalTexture = NULL;
   material.emissiveTexture = NULL;
   material.flags = 0;
-  material.featureFlags = 0;
+  // Note: featureFlags is set above (BASE_COLOR flag) — don't reset it here
 }
 
 void
@@ -491,7 +494,17 @@ fillRenderStateFromState(SoState * state, SoRenderState & rs)
     break;
   }
   rs.raster.fillMode = fillmode;
-  rs.raster.cullMode = 0;
+
+  // Backface culling from SoShapeHintsElement:
+  // vertexOrdering == COUNTERCLOCKWISE + shapeType == SOLID → cull back faces
+  {
+    SoShapeHintsElement::VertexOrdering vo;
+    SoShapeHintsElement::ShapeType st;
+    SoShapeHintsElement::FaceType ft;
+    SoShapeHintsElement::get(mutableState, vo, st, ft);
+    rs.raster.cullMode = (vo == SoShapeHintsElement::COUNTERCLOCKWISE
+                       && st == SoShapeHintsElement::SOLID) ? 1 : 0;
+  }
   rs.raster.scissorEnabled = FALSE;
   rs.raster.lineWidth = SoLineWidthElement::get(mutableState);
   rs.raster.pointSize = SoPointSizeElement::get(mutableState);
@@ -643,6 +656,8 @@ appendCacheDrawCommands(const SoPrimitiveVertexCache * cache,
   SoModernIR::fillMaterialFromState(state, cmd.material);
   SoModernIR::fillRenderStateFromState(state, cmd.state);
   cmd.modelMatrix = SoModelMatrixElement::get(state);
+  cmd.viewMatrix = SoViewingMatrixElement::get(state);
+  cmd.projMatrix = SoProjectionMatrixElement::get(state);
 
   if (!cmd.state.depth.enabled) {
     cmd.pass = SO_RENDERPASS_OVERLAY;

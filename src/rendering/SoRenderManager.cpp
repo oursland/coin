@@ -578,6 +578,13 @@ SoRenderManager::renderModern(const SbBool clearwindow,
       action->apply(PRIVATE(this)->scene);
     }
 
+    // Traverse foreground root (NaviCube, overlays) after main scene.
+    // Commands are appended to the draw list. The SoAnnotation nodes
+    // inside foregroundroot will disable depth, producing overlay commands.
+    if (PRIVATE(this)->modernForegroundRoot) {
+      action->traverseAdditionalRoot(PRIVATE(this)->modernForegroundRoot);
+    }
+
     if (PRIVATE(this)->camera) {
       float aspect = vp.getViewportAspectRatio();
       SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
@@ -1909,6 +1916,26 @@ SoNode *
 SoRenderManager::getModernBackgroundRoot(void) const
 {
   return PRIVATE(this)->modernBackgroundRoot;
+}
+
+void
+SoRenderManager::setModernForegroundRoot(SoNode * root)
+{
+  if (PRIVATE(this)->modernForegroundRoot) {
+    PRIVATE(this)->modernForegroundRoot->unref();
+  }
+  PRIVATE(this)->modernForegroundRoot = root;
+  if (root) {
+    root->ref();
+    PRIVATE(this)->drawListValid = false;
+    this->scheduleRedraw();
+  }
+}
+
+SoNode *
+SoRenderManager::getModernForegroundRoot(void) const
+{
+  return PRIVATE(this)->modernForegroundRoot;
 }
 
 uint32_t

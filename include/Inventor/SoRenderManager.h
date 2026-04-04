@@ -198,6 +198,11 @@ public:
   void setModernBackgroundRoot(SoNode * root);
   SoNode * getModernBackgroundRoot(void) const;
 
+  /// Set a foreground scene root to traverse after the main scene.
+  /// Rendered as overlay (on top of everything, depth test disabled).
+  void setModernForegroundRoot(SoNode * root);
+  SoNode * getModernForegroundRoot(void) const;
+
   /// GPU pick at pixel coordinates using the modern backend's ID buffer.
   /// Returns the pick LUT index (1-based) or 0 for no hit.
   /// Coordinates are in OpenGL convention (origin at bottom-left).
