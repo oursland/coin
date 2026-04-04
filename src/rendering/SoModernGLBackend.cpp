@@ -290,19 +290,32 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
                    cmd.geometry.texcoords, GL_STATIC_DRAW);
     }
 
-    // Upload texture
+    // Upload texture — expand 1/2-component to RGBA on CPU to avoid
+    // GL_LUMINANCE/GL_LUMINANCE_ALPHA which are removed in Core Profile.
     if (entry.textureId == 0) glGenTextures(1, &entry.textureId);
     glBindTexture(GL_TEXTURE_2D, entry.textureId);
-    GLenum fmt = GL_RGBA;
-    switch (cmd.material.texture.numComponents) {
-    case 1: fmt = GL_LUMINANCE; break;
-    case 2: fmt = GL_LUMINANCE_ALPHA; break;
-    case 3: fmt = GL_RGB; break;
-    case 4: fmt = GL_RGBA; break;
+    int nc = cmd.material.texture.numComponents;
+    int tw = cmd.material.texture.width;
+    int th = cmd.material.texture.height;
+    const unsigned char * src = cmd.material.texture.pixels;
+    std::vector<unsigned char> expanded;
+    if (nc == 1 || nc == 2) {
+      int npx = tw * th;
+      expanded.resize(npx * 4);
+      for (int px = 0; px < npx; px++) {
+        unsigned char lum = src[px * nc];
+        unsigned char alpha = (nc == 2) ? src[px * nc + 1] : 255;
+        expanded[px * 4]     = lum;
+        expanded[px * 4 + 1] = lum;
+        expanded[px * 4 + 2] = lum;
+        expanded[px * 4 + 3] = alpha;
+      }
+      src = expanded.data();
+      nc = 4;
     }
-    glTexImage2D(GL_TEXTURE_2D, 0, fmt,
-                 cmd.material.texture.width, cmd.material.texture.height,
-                 0, fmt, GL_UNSIGNED_BYTE, cmd.material.texture.pixels);
+    GLenum fmt = (nc == 3) ? GL_RGB : GL_RGBA;
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, tw, th, 0, fmt,
+                 GL_UNSIGNED_BYTE, src);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -531,8 +544,8 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     float ps = cmd.state.raster.pointSize;
     if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
     glPointSize(std::max(ps, 1.0f));
-    glEnable(GL_POINT_SMOOTH);
-    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    // Point circle discard via gl_PointCoord in shader (mode 1.5)
+    glUniform1f(this->uRenderModeLocation, 1.5f);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   }
@@ -641,7 +654,6 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glEnable(GL_DEPTH_TEST);
   }
   if (prim == GL_POINTS || fillMode == 2) {
-    glDisable(GL_POINT_SMOOTH);
     glDisable(GL_BLEND);
     glPointSize(1.0f);
   }
@@ -870,8 +882,8 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
     GLenum prim = topologyToGL(cmd.geometry.topology);
 
     if (prim == GL_POINTS) {
-      glEnable(GL_POINT_SMOOTH);
-      glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+      // Point circle discard via gl_PointCoord in shader (mode 1.5)
+      glUniform1f(this->uRenderModeLocation, 1.5f);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       // Use GL_ALWAYS so point highlights render on top of billboard markers
@@ -897,7 +909,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
     }
 
     if (prim == GL_POINTS) {
-      glDisable(GL_POINT_SMOOTH);
+      glUniform1f(this->uRenderModeLocation, 1.0f);  // restore to flat
       glDepthFunc(GL_LEQUAL);
     }
   }
@@ -1093,13 +1105,18 @@ SoModernGLBackend::createShaders()
     "varying vec4 v_color;\n"
     "varying vec2 v_texcoord;\n"
     "void main() {\n"
-    // Mode 1: flat/unlit (BASE_COLOR, points, lines, selection overlay)
-    "  if (u_renderMode > 0.5 && u_renderMode < 1.5) {\n"
+    // Mode 1/1.5: flat/unlit (BASE_COLOR, lines, selection overlay, points)
+    // 1.0 = flat, 1.5 = flat + point circle discard (replaces GL_POINT_SMOOTH)
+    "  if (u_renderMode > 0.5 && u_renderMode < 1.8) {\n"
+    "    if (u_renderMode > 1.2) {\n"
+    "      vec2 pc = gl_PointCoord - vec2(0.5);\n"
+    "      if (dot(pc, pc) > 0.25) discard;\n"
+    "    }\n"
     "    gl_FragColor = v_color;\n"
     "    return;\n"
     "  }\n"
     // Mode 2: textured billboard
-    "  if (u_renderMode > 1.5 && u_renderMode < 2.5) {\n"
+    "  if (u_renderMode > 1.8 && u_renderMode < 2.5) {\n"
     "    vec4 c = texture2D(u_texture, v_texcoord);\n"
     "    if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
     "    gl_FragColor = c * u_texModColor;\n"
