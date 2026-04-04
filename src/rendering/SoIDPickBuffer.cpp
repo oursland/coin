@@ -15,11 +15,13 @@
 #include <Inventor/SbMatrix.h>
 #include <Inventor/system/gl.h>
 
-// macOS legacy GL headers provide VAO functions with APPLE suffix
+// macOS: declare standard VAO functions (see SoModernGLBackend.cpp comment)
 #if defined(__APPLE__) && !defined(glGenVertexArrays)
-#define glGenVertexArrays    glGenVertexArraysAPPLE
-#define glBindVertexArray    glBindVertexArrayAPPLE
-#define glDeleteVertexArrays glDeleteVertexArraysAPPLE
+extern "C" {
+void glGenVertexArrays(GLsizei n, GLuint * arrays);
+void glBindVertexArray(GLuint array);
+void glDeleteVertexArrays(GLsizei n, const GLuint * arrays);
+}
 #endif
 
 #include <Inventor/C/glue/gl.h>
@@ -33,11 +35,11 @@
 // -----------------------------------------------------------------------
 
 static const char * idVertexShader = R"(
-#version 120
-attribute vec3 aPos;
-attribute vec3 aNormal;
-attribute vec4 aIdColor;
-varying vec4 vIdColor;
+#version 410 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec4 aIdColor;
+out vec4 vIdColor;
 uniform mat4 uView;
 uniform mat4 uProj;
 uniform mat4 uModel;
@@ -48,10 +50,11 @@ void main() {
 )";
 
 static const char * idFragmentShader = R"(
-#version 120
-varying vec4 vIdColor;
+#version 410 core
+in vec4 vIdColor;
+out vec4 fragColor;
 void main() {
-    gl_FragColor = vIdColor;
+    fragColor = vIdColor;
 }
 )";
 

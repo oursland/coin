@@ -4,11 +4,16 @@
 #include "rendering/SoVBO.h"
 #include "CoinTracyConfig.h"
 
-// macOS legacy GL headers provide VAO functions with APPLE suffix
+// macOS: <OpenGL/gl.h> only provides APPLE-suffixed VAO functions, but
+// Core Profile requires the standard names. Declare them explicitly —
+// they exist in the framework regardless of which header is included.
+// In Compatibility Profile, these resolve to the same entry points.
 #if defined(__APPLE__) && !defined(glGenVertexArrays)
-#define glGenVertexArrays    glGenVertexArraysAPPLE
-#define glBindVertexArray    glBindVertexArrayAPPLE
-#define glDeleteVertexArrays glDeleteVertexArraysAPPLE
+extern "C" {
+void glGenVertexArrays(GLsizei n, GLuint * arrays);
+void glBindVertexArray(GLuint array);
+void glDeleteVertexArrays(GLsizei n, const GLuint * arrays);
+}
 #endif
 
 #include <Inventor/SbBasic.h>
@@ -776,6 +781,10 @@ SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
     matricesInitialized = true;
   }
 
+  // Drain any GL errors left by legacy Coin code (SoGLRenderAction
+  // makes deprecated calls that generate errors in Core Profile)
+  while (glGetError() != GL_NO_ERROR) {}
+
   // Clear depth if requested (used for overlay passes)
   if (params.flags & SO_PARAM_CLEAR_DEPTH) {
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -1149,14 +1158,14 @@ bool
 SoModernGLBackend::createShaders()
 {
   // Unified shader — Blinn-Phong + flat + billboard + textured
-  // u_renderMode: 0=lit, 1=flat/unlit, 2=textured billboard, 3=textured world-space
+  // u_renderMode: 0=lit, 1=flat/unlit, 1.5=flat+point, 2=billboard, 3=textured
   static const char * vertexSource =
-    "#version 120\n"
-    "attribute vec3 a_position;\n"
-    "attribute vec3 a_normal;\n"
-    "attribute vec4 a_color;\n"
-    "attribute vec2 a_texcoord;\n"
-    "attribute float a_lineDistance;\n"
+    "#version 410 core\n"
+    "layout(location = 0) in vec3 a_position;\n"
+    "layout(location = 1) in vec3 a_normal;\n"
+    "layout(location = 2) in vec4 a_color;\n"
+    "layout(location = 3) in vec2 a_texcoord;\n"
+    "layout(location = 4) in float a_lineDistance;\n"
     "uniform mat4 u_proj;\n"
     "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
@@ -1167,12 +1176,12 @@ SoModernGLBackend::createShaders()
     "uniform vec3 u_quadCenter;\n"
     "uniform vec2 u_texSize;\n"
     "uniform vec2 u_vpSize;\n"
-    "varying vec3 v_eyePos;\n"
-    "varying vec3 v_eyeNormal;\n"
-    "varying vec4 v_color;\n"
-    "varying vec2 v_texcoord;\n"
-    "varying vec2 v_winPos;\n"
-    "varying float v_lineDistance;\n"
+    "out vec3 v_eyePos;\n"
+    "out vec3 v_eyeNormal;\n"
+    "out vec4 v_color;\n"
+    "out vec2 v_texcoord;\n"
+    "out vec2 v_winPos;\n"
+    "out float v_lineDistance;\n"
     "void main() {\n"
     "  v_color = (u_useVertexColor > 0.5) ? a_color : u_color;\n"
     "  v_texcoord = a_texcoord;\n"
@@ -1200,18 +1209,19 @@ SoModernGLBackend::createShaders()
     "}\n";
 
   static const char * fragmentSource =
-    "#version 120\n"
+    "#version 410 core\n"
     "uniform float u_renderMode;\n"
     "uniform vec3 u_emissiveColor;\n"
     "uniform sampler2D u_texture;\n"
     "uniform vec4 u_texModColor;\n"
     "uniform float u_stipplePeriod;\n"
-    "varying vec3 v_eyePos;\n"
-    "varying vec3 v_eyeNormal;\n"
-    "varying vec4 v_color;\n"
-    "varying vec2 v_texcoord;\n"
-    "varying vec2 v_winPos;\n"
-    "varying float v_lineDistance;\n"
+    "in vec3 v_eyePos;\n"
+    "in vec3 v_eyeNormal;\n"
+    "in vec4 v_color;\n"
+    "in vec2 v_texcoord;\n"
+    "in vec2 v_winPos;\n"
+    "in float v_lineDistance;\n"
+    "out vec4 fragColor;\n"
     "void main() {\n"
     // Mode 1/1.5: flat/unlit (BASE_COLOR, lines, selection overlay, points)
     // 1.0 = flat, 1.5 = flat + point circle discard (replaces GL_POINT_SMOOTH)
@@ -1225,21 +1235,21 @@ SoModernGLBackend::createShaders()
     "    if (u_stipplePeriod > 0.0) {\n"
     "      if (mod(v_lineDistance, u_stipplePeriod) > u_stipplePeriod * 0.5) discard;\n"
     "    }\n"
-    "    gl_FragColor = v_color;\n"
+    "    fragColor = v_color;\n"
     "    return;\n"
     "  }\n"
     // Mode 2: textured billboard
     "  if (u_renderMode > 1.8 && u_renderMode < 2.5) {\n"
-    "    vec4 c = texture2D(u_texture, v_texcoord);\n"
+    "    vec4 c = texture(u_texture, v_texcoord);\n"
     "    if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
-    "    gl_FragColor = c * u_texModColor;\n"
+    "    fragColor = c * u_texModColor;\n"
     "    return;\n"
     "  }\n"
     // Mode 3: textured world-space (modulate with material)
     "  if (u_renderMode > 2.5) {\n"
-    "    vec4 c = texture2D(u_texture, v_texcoord);\n"
+    "    vec4 c = texture(u_texture, v_texcoord);\n"
     "    if (c.a < 0.3) discard;\n"  // ALPHA_DISCARD_THRESHOLD
-    "    gl_FragColor = c * u_texModColor;\n"
+    "    fragColor = c * u_texModColor;\n"
     "    return;\n"
     "  }\n"
     // Mode 0: Blinn-Phong lit
@@ -1254,7 +1264,7 @@ SoModernGLBackend::createShaders()
     "  vec3 ambient = 0.25 * v_color.rgb;\n"  // AMBIENT_COEFF
     "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"  // DIFFUSE_COEFF
     "  vec3 specular = 0.12 * spec * vec3(1.0);\n"  // SPECULAR_COEFF
-    "  gl_FragColor = vec4(ambient + diffuse + specular + u_emissiveColor, v_color.a);\n"
+    "  fragColor = vec4(ambient + diffuse + specular + u_emissiveColor, v_color.a);\n"
     "}\n";
 
   GLuint vs = coin_compile_shader(GL_VERTEX_SHADER, vertexSource);
