@@ -517,6 +517,16 @@ SoDragger::callback(SoCallbackAction * action)
 // Doc in superclass. Overridden to initialize some elements before
 // traversing children.
 void
+SoDragger::doAction(SoAction * action)
+{
+  SoState * state = action->getState();
+  state->push();
+  this->updateElements(state);
+  inherited::doAction(action);
+  state->pop();
+}
+
+void
 SoDragger::GLRender(SoGLRenderAction * action)
 {
   SoState * state = action->getState();
