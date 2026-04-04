@@ -13,6 +13,8 @@
 #define ZoneText(x, y)
 #define FrameMark
 #define TracyPlot(x, y)
+#define TracyMessageL(x)
+#define TracyMessageCS(x, s, c)
 #endif
 
 #endif // COIN_TRACY_CONFIG_H

@@ -384,7 +384,8 @@ SoRenderManager::setSceneGraph(SoNode * const sceneroot)
     this->attachRootSensor(PRIVATE(this)->scene);
     //this->attachClipSensor(PRIVATE(this)->scene);
   }
-  PRIVATE(this)->drawListValid = false;
+  PRIVATE(this)->sceneGeneration++;
+  PRIVATE(this)->foregroundGeneration++;
 
   if (oldroot) oldroot->unref();
 }
@@ -444,33 +445,48 @@ SoRenderManager::nodesensorCB(void * data, SoSensor * sensor)
   SoNode * trigger = ns->getTriggerNode();
 
   if (PRIVATE(self)->modernEnabled) {
-    if (PRIVATE(self)->hasCameraDependentShapes) {
-      // Scene has camera-dependent shapes (e.g. SoDatumLabel) — always
-      // invalidate so geometry is rebuilt with the current view volume.
-      PRIVATE(self)->drawListValid = false;
+    bool isCameraChange = (trigger && trigger == PRIVATE(self)->camera);
+
+    // Consume the pending camera change flag (set by notifyCameraChange()
+    // before deferred sensor fires, e.g. from zoom scroll).
+    bool wasCameraChange = PRIVATE(self)->pendingCameraChange;
+    PRIVATE(self)->pendingCameraChange = false;
+
+    if (isCameraChange || PRIVATE(self)->interactive || wasCameraChange) {
+      // Camera change, interactive navigation, or pending camera change
+      // from zoom scroll. Only foreground needs re-traversal.
+      PRIVATE(self)->foregroundGeneration++;
+      TracyMessageL("sensor: fg-only");
     }
-    else if (PRIVATE(self)->interactive && trigger) {
-      // Navigation with a known trigger node: just redraw, no invalidation.
-      // NULL triggers (structural changes like addChild/removeChild) still
-      // need invalidation even during interactive mode — e.g. rotation center
-      // sphere added dynamically at the start of orbit.
+    else if (!trigger) {
+      // NULL trigger outside interactive mode with no pending camera flag.
+      // This is a structural change (SoSwitch toggle, addChild/removeChild).
+      PRIVATE(self)->sceneGeneration++;
+      PRIVATE(self)->foregroundGeneration++;
+      TracyMessageL("sensor: SCENE INVALIDATE (null)");
     }
-    else if (trigger && trigger->isOfType(SoShape::getClassTypeId())
+    else if (trigger->isOfType(SoCamera::getClassTypeId())) {
+      // Camera field change detected via trigger node type.
+      PRIVATE(self)->foregroundGeneration++;
+      TracyMessageL("sensor: fg-only (camera node)");
+    }
+    else if (trigger->isOfType(SoShape::getClassTypeId())
              && !ns->getTriggerField()) {
       // Shape touch without a field change: selection/highlight context.
-      // If a field changed (getTriggerField() != NULL), the shape's
-      // geometry or text may have been updated — must re-traverse.
+      TracyMessageL("sensor: shape touch (skip)");
     }
     else {
-      // Structural change, visibility toggle (SoSwitch), or NULL trigger
-      // from field propagation. Must re-traverse to pick up the change.
-      PRIVATE(self)->drawListValid = false;
+      // Other field change on a known non-camera, non-shape trigger.
+      PRIVATE(self)->sceneGeneration++;
+      PRIVATE(self)->foregroundGeneration++;
+      TracyMessageL("sensor: SCENE INVALIDATE");
     }
   }
   else {
     // Legacy renderer: any non-camera change invalidates
+    // (use sceneGeneration as the legacy invalidation mechanism)
     if (!trigger || trigger != PRIVATE(self)->camera) {
-      PRIVATE(self)->drawListValid = false;
+      PRIVATE(self)->sceneGeneration++;
     }
   }
   self->scheduleRedraw();
@@ -561,35 +577,77 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setViewportRegion(vp);
   action->setCamera(PRIVATE(this)->camera);
 
-  if (!PRIVATE(this)->drawListValid) {
-    // Auto-clip camera near/far planes to scene bounding box
+  bool sceneChanged = (PRIVATE(this)->cachedSceneGen != PRIVATE(this)->sceneGeneration);
+  bool fgChanged = (PRIVATE(this)->cachedForegroundGen != PRIVATE(this)->foregroundGeneration);
+
+  // Tracy: plot generation values and rebuild path each frame
+  // rebuildPath: 0=cached, 1=fg-only, 2=full
+  TracyPlot("sceneGen", (int64_t)PRIVATE(this)->sceneGeneration);
+  TracyPlot("fgGen", (int64_t)PRIVATE(this)->foregroundGeneration);
+  TracyPlot("rebuildPath", (int64_t)(sceneChanged ? 2 : (fgChanged ? 1 : 0)));
+
+  if (sceneChanged) {
+    TracyMessageL("FULL REBUILD");
+    // Full rebuild: background + main scene + foreground
     if (PRIVATE(this)->autoclipping != SoRenderManager::NO_AUTO_CLIPPING) {
       PRIVATE(this)->setClippingPlanes();
     }
 
-    // Traverse background root first (gradient, grid). These commands
-    // are at the start of the draw list. The backend renders them before
-    // clearing the depth buffer and rendering the main scene.
+    // Traverse background root first (gradient, grid)
     PRIVATE(this)->modernBgCommandCount = 0;
     if (PRIVATE(this)->modernBackgroundRoot) {
       action->apply(PRIVATE(this)->modernBackgroundRoot);
       PRIVATE(this)->modernBgCommandCount = action->getDrawList().getNumCommands();
     }
 
-    // Traverse main scene — appends to draw list after background
+    // Traverse main scene — appends after background
     if (PRIVATE(this)->modernBgCommandCount > 0) {
       action->traverseAdditionalRoot(PRIVATE(this)->scene);
     } else {
       action->apply(PRIVATE(this)->scene);
     }
 
-    // Traverse foreground root (NaviCube, overlays) after main scene.
-    // Commands are appended to the draw list. The SoAnnotation nodes
-    // inside foregroundroot will disable depth, producing overlay commands.
+    PRIVATE(this)->mainSceneCommandCount = action->getDrawList().getNumCommands();
+
+    // Save geometry pool state so partial rebuilds can rewind to this
+    // point, re-allocating foreground geometry at the same addresses
+    // for stable VBO cache keys.
+    PRIVATE(this)->poolSavePoint = action->saveGeometryPool();
+
+    // Traverse foreground root (NaviCube, overlays)
     if (PRIVATE(this)->modernForegroundRoot) {
       action->traverseAdditionalRoot(PRIVATE(this)->modernForegroundRoot);
     }
 
+    PRIVATE(this)->cachedSceneGen = PRIVATE(this)->sceneGeneration;
+    PRIVATE(this)->cachedForegroundGen = PRIVATE(this)->foregroundGeneration;
+
+    // Propagate camera-dependency flag from action to render manager.
+    PRIVATE(this)->hasCameraDependentShapes =
+      action->hasCameraDependentShapes();
+  }
+  else if (fgChanged) {
+    TracyMessageL("FG-ONLY REBUILD");
+    // Camera-only change: keep bg + main scene cached, re-traverse only
+    // foreground (NaviCube). Update clipping planes for zoom changes.
+    if (PRIVATE(this)->autoclipping != SoRenderManager::NO_AUTO_CLIPPING) {
+      PRIVATE(this)->setClippingPlanes();
+    }
+
+    // Rewind the geometry pool to the save point after main scene traversal
+    // so foreground geometry re-allocates at the same addresses — VBO cache
+    // hits automatically.
+    action->getMutableDrawList().truncate(PRIVATE(this)->mainSceneCommandCount);
+    action->rewindGeometryPool(PRIVATE(this)->poolSavePoint);
+
+    if (PRIVATE(this)->modernForegroundRoot) {
+      action->traverseAdditionalRoot(PRIVATE(this)->modernForegroundRoot);
+    }
+
+    PRIVATE(this)->cachedForegroundGen = PRIVATE(this)->foregroundGeneration;
+  }
+
+  if (sceneChanged || fgChanged) {
     if (PRIVATE(this)->camera) {
       float aspect = vp.getViewportAspectRatio();
       SbViewVolume vv = PRIVATE(this)->camera->getViewVolume(aspect);
@@ -599,12 +657,6 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     }
 
     action->getMutableDrawList().buildPickLUT();
-    PRIVATE(this)->drawListValid = true;
-
-    // Propagate camera-dependency flag from action to render manager.
-    // When set, the sensor callback will invalidate on camera changes.
-    PRIVATE(this)->hasCameraDependentShapes =
-      action->hasCameraDependentShapes();
   }
 
   SoRenderTargetInfo targetinfo = {};
@@ -1936,7 +1988,7 @@ SoRenderManager::setModernForegroundRoot(SoNode * root)
   PRIVATE(this)->modernForegroundRoot = root;
   if (root) {
     root->ref();
-    PRIVATE(this)->drawListValid = false;
+    PRIVATE(this)->foregroundGeneration++;
     this->scheduleRedraw();
   }
 }
@@ -2008,9 +2060,9 @@ SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) c
   SoPath * path = this->getGpuPickPath(lutIndex);
   if (!path || path->getLength() == 0) return NULL;
 
-  // Validate the draw list is valid — if it's been invalidated,
+  // Validate the draw list is current — if the scene generation changed,
   // the stored paths may reference freed nodes.
-  if (!PRIVATE(this)->drawListValid) return NULL;
+  if (PRIVATE(this)->cachedSceneGen != PRIVATE(this)->sceneGeneration) return NULL;
 
   // Validate path nodes aren't null
   SoFullPath * fullPath = static_cast<SoFullPath *>(path);
@@ -2081,7 +2133,8 @@ SoRenderManager::assemblePickedPoint(int screenX, int screenY, int pickRadius) c
 void
 SoRenderManager::invalidateDrawList()
 {
-  PRIVATE(this)->drawListValid = false;
+  PRIVATE(this)->sceneGeneration++;
+  PRIVATE(this)->foregroundGeneration++;
   this->scheduleRedraw();
 }
 
@@ -2173,6 +2226,12 @@ void
 SoRenderManager::setInteractive(SbBool interactive)
 {
   PRIVATE(this)->interactive = interactive;
+}
+
+void
+SoRenderManager::notifyCameraChange(void)
+{
+  PRIVATE(this)->pendingCameraChange = true;
 }
 
 SbBool

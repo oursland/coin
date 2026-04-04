@@ -265,6 +265,15 @@ public:
 
   size_t size() const { return this->totalAllocated; }
 
+  //! Save current allocation state. Subsequent rewindTo() restores to
+  //! this point, allowing re-allocation at the same addresses.
+  struct SavePoint {
+    std::vector<size_t> chunkCursors;
+    size_t totalAllocated = 0;
+  };
+  SavePoint save() const;
+  void rewindTo(const SavePoint & sp);
+
 private:
   static constexpr size_t MIN_CHUNK_SIZE = 1024 * 1024; // 1 MB
   struct Chunk {
@@ -322,6 +331,7 @@ public:
   SoRenderCommand & emplaceCommand();
 
   int getNumCommands() const;
+  void truncate(int count);  //!< Remove commands beyond index count (for partial rebuild)
   SoRenderCommand & getCommand(int i);
   const SoRenderCommand & getCommand(int i) const;
 

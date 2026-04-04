@@ -279,6 +279,24 @@ SoModernRenderAction::allocateGeometryStorage(size_t bytes, size_t alignment)
   return PRIVATE(this)->geometryPool.allocate(bytes, alignment);
 }
 
+SoIRBuffer::SavePoint
+SoModernRenderAction::saveGeometryPool() const
+{
+  return PRIVATE(this)->geometryPool.save();
+}
+
+void
+SoModernRenderAction::rewindGeometryPool(const SoIRBuffer::SavePoint & sp)
+{
+  PRIVATE(this)->geometryPool.rewindTo(sp);
+}
+
+void
+SoModernRenderAction::clearGeometryPool()
+{
+  PRIVATE(this)->geometryPool.clear();
+}
+
 void
 SoModernRenderAction::resetFrameResources()
 {

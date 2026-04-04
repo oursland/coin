@@ -48,6 +48,31 @@ SoIRBuffer::clear()
   this->totalAllocated = 0;
 }
 
+SoIRBuffer::SavePoint
+SoIRBuffer::save() const
+{
+  SavePoint sp;
+  sp.totalAllocated = this->totalAllocated;
+  sp.chunkCursors.reserve(this->chunks.size());
+  for (const auto & chunk : this->chunks) {
+    sp.chunkCursors.push_back(chunk->cursor);
+  }
+  return sp;
+}
+
+void
+SoIRBuffer::rewindTo(const SavePoint & sp)
+{
+  this->totalAllocated = sp.totalAllocated;
+  for (size_t i = 0; i < sp.chunkCursors.size() && i < this->chunks.size(); ++i) {
+    this->chunks[i]->cursor = sp.chunkCursors[i];
+  }
+  // Reset any chunks beyond the save point
+  for (size_t i = sp.chunkCursors.size(); i < this->chunks.size(); ++i) {
+    this->chunks[i]->cursor = 0;
+  }
+}
+
 void
 SoIRBuffer::reserve(size_t bytes)
 {
@@ -103,6 +128,17 @@ SoDrawList::clear()
   this->pickLUT.clear();
   this->sortedOrder.clear();
   this->generation++;
+}
+
+void
+SoDrawList::truncate(int count)
+{
+  if (count < this->commands.getLength()) {
+    this->commands.truncate(count);
+    // Pick LUT and sorted order are rebuilt after traversal, no need to
+    // truncate them here — they'll be fully rebuilt by buildPickLUT()
+    // and buildSortedOrder().
+  }
 }
 
 void

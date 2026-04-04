@@ -71,6 +71,13 @@ public:
   SoPath * getCommandPath(int commandIndex) const;
   void * allocateGeometryStorage(size_t bytes, size_t alignment = alignof(float));
 
+  /// Save/rewind geometry pool state for partial draw list rebuilds.
+  /// Save after main scene traversal; rewind before foreground re-traversal
+  /// so geometry re-allocates at the same addresses (stable VBO cache keys).
+  SoIRBuffer::SavePoint saveGeometryPool() const;
+  void rewindGeometryPool(const SoIRBuffer::SavePoint & sp);
+  void clearGeometryPool();
+
   void pushPrimitiveCollector(PrimitiveCollector * collector);
   void popPrimitiveCollector(PrimitiveCollector * collector);
   PrimitiveCollector * getActivePrimitiveCollector(void) const;

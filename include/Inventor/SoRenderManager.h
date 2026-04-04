@@ -268,6 +268,10 @@ public:
   void setInteractive(SbBool interactive);
   SbBool isInteractive() const;
 
+  /// Signal that the camera is being modified (e.g. zoom scroll).
+  /// Consumed by the deferred sensor callback to avoid full scene rebuild.
+  void notifyCameraChange(void);
+
   void setAudioRenderAction(SoAudioRenderAction * const action);
   SoAudioRenderAction * getAudioRenderAction(void) const;
 
