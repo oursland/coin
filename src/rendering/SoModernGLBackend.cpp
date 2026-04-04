@@ -689,14 +689,13 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
 }
 
 // -----------------------------------------------------------------------
-// Render
+// Render pass methods
 // -----------------------------------------------------------------------
 
-SbBool
-SoModernGLBackend::render(const SoDrawList & drawlist,
-                          const SoRenderParams & params)
+void
+SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
+                              const SoRenderParams & params)
 {
-  ZoneScopedN("GLBackend::render");
   this->debugValidateDrawList(drawlist);
   this->logFrameStats(drawlist, params);
   this->currentFrame = params.frameIndex;
@@ -711,14 +710,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     matricesInitialized = true;
   }
 
-  if (!this->shaderProgram) return TRUE;
-
   // Clear depth if requested (used for overlay passes)
   if (params.flags & SO_PARAM_CLEAR_DEPTH) {
     glClear(GL_DEPTH_BUFFER_BIT);
   }
 
-  // Enable depth test
+  // Establish default GL state for the frame
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
@@ -734,56 +731,73 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   // Default: lighting enabled
   glUniform1f(this->uEmissiveLocation, 0.0f);
+}
 
+void
+SoModernGLBackend::updateGeometryCache(const SoDrawList & drawlist)
+{
+  ZoneScopedN("cacheUpdate");
   const int count = drawlist.getNumCommands();
+  for (int i = 0; i < count; ++i) {
+    const SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) continue;
+    if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) continue;
 
-  // --- Cache-aware draw: ensure all commands have cached VBOs/VAOs ---
-  {
-    ZoneScopedN("cacheUpdate");
-    for (int i = 0; i < count; ++i) {
-      const SoRenderCommand & cmd = drawlist.getCommand(i);
-      if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) continue;
-      if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) continue;
+    GLsizei stride = static_cast<GLsizei>(
+      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
 
-      GLsizei stride = static_cast<GLsizei>(
-        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
-
-      CachedGPUCommand & entry = getOrCreateCache(cmd.geometry.positions, cmd.geometry.indices);
-      uint32_t gen = drawlist.getGeneration();
-      bool needsUpload = !entry.isGeometryValid(
-        cmd.geometry.positions, cmd.geometry.normals,
-        cmd.geometry.indices, cmd.geometry.vertexCount,
-        cmd.geometry.indexCount, static_cast<uint32_t>(stride), gen);
-      // Also upload if command has texture but cache doesn't
-      if (!needsUpload && cmd.material.texture.pixels && entry.textureId == 0) {
-        needsUpload = true;
-      }
-      if (needsUpload) {
-        uploadGeometry(entry, cmd);
-        setupVisualVAO(entry, cmd);
-        entry.cacheGeneration = gen;
-      }
-      entry.lastUsedFrame = this->currentFrame;
+    CachedGPUCommand & entry = getOrCreateCache(cmd.geometry.positions, cmd.geometry.indices);
+    uint32_t gen = drawlist.getGeneration();
+    bool needsUpload = !entry.isGeometryValid(
+      cmd.geometry.positions, cmd.geometry.normals,
+      cmd.geometry.indices, cmd.geometry.vertexCount,
+      cmd.geometry.indexCount, static_cast<uint32_t>(stride), gen);
+    // Also upload if command has texture but cache doesn't
+    if (!needsUpload && cmd.material.texture.pixels && entry.textureId == 0) {
+      needsUpload = true;
     }
+    if (needsUpload) {
+      uploadGeometry(entry, cmd);
+      setupVisualVAO(entry, cmd);
+      entry.cacheGeneration = gen;
+    }
+    entry.lastUsedFrame = this->currentFrame;
   }
+}
 
-  // Iterate in sorted order: opaque front-to-back, then transparent back-to-front.
-  // The sortedOrder array encodes pass type in the sort key, so opaque commands
-  // Background pass: render background commands (gradient, etc.) first,
-  // unsorted, in draw list order. Then clear depth so main scene renders on top.
+void
+SoModernGLBackend::renderBackgroundPass(const SoDrawList & drawlist,
+                                        const SbMat & viewMat,
+                                        const SbMat & projMat,
+                                        const SoRenderParams & params)
+{
   int bgCount = params.bgCommandCount;
-  if (bgCount > 0) {
-    // Background commands have their own view/proj matrices captured
-    // per-command (identity for gradients, ortho for grids, etc.).
-    glDepthMask(GL_FALSE);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_BLEND);
-    for (int i = 0; i < bgCount && i < count; ++i) {
-      drawCommand(drawlist.getCommand(i), viewMat, projMat, params);
-    }
-    glEnable(GL_DEPTH_TEST);
-    glClear(GL_DEPTH_BUFFER_BIT);
+  int count = drawlist.getNumCommands();
+  if (bgCount <= 0) return;
+
+  // Background commands have their own view/proj matrices captured
+  // per-command (identity for gradients, ortho for grids, etc.).
+  glDepthMask(GL_FALSE);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_BLEND);
+  for (int i = 0; i < bgCount && i < count; ++i) {
+    drawCommand(drawlist.getCommand(i), viewMat, projMat, params);
   }
+
+  // Restore default state; clear depth so main scene renders on top
+  glEnable(GL_DEPTH_TEST);
+  glDepthMask(GL_TRUE);
+  glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+void
+SoModernGLBackend::renderMainScenePass(const SoDrawList & drawlist,
+                                       const SbMat & viewMat,
+                                       const SbMat & projMat,
+                                       const SoRenderParams & params)
+{
+  const int count = drawlist.getNumCommands();
+  int bgCount = params.bgCommandCount;
 
   // Main scene: sorted opaque front-to-back, then transparent back-to-front,
   // then overlay (annotations) last.
@@ -796,7 +810,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
 
   for (int si = 0; si < count; ++si) {
     int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
-    // Skip background commands — already rendered above
+    // Skip background commands — already rendered
     if (ci < bgCount) continue;
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
 
@@ -821,14 +835,28 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     drawCommand(cmd, viewMat, projMat, params);
   }
 
-  // Pass 3: Selection/highlight overlays — emissive flat color on top
+  // Restore default state after main scene
+  glEnable(GL_DEPTH_TEST);
+  glDepthFunc(GL_LEQUAL);
+  glDepthMask(GL_TRUE);
+  glDisable(GL_BLEND);
+}
+
+void
+SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
+                                       const SbMat & viewMat,
+                                       const SbMat & projMat)
+{
+  const int count = drawlist.getNumCommands();
+
+  // Selection/highlight overlays — emissive flat color on top
   glDepthMask(GL_FALSE);
   glDepthFunc(GL_LEQUAL);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glUniform1f(this->uEmissiveLocation, 1.0f);
 
-  // Helper: draw a sub-range or whole command for overlay
+  // Helper: draw a sub-range or whole command for selection overlay
   auto drawElementRange = [](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.pick.faceStart.size())) {
@@ -909,67 +937,103 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
   }
 
+  // Restore default state
   glUniform1f(this->uEmissiveLocation, 0.0f);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
+}
+
+void
+SoModernGLBackend::endFrame()
+{
   glBindVertexArray(0);
   glUseProgram(0);
-
-  // GC stale cache entries
   gcStaleEntries(this->currentFrame);
+}
 
-  // Render ID buffer for GPU picking — skip during interactive navigation
-  // (no preselection during orbit/pan/zoom, saves ~11ms per frame)
+void
+SoModernGLBackend::renderIDBufferPass(const SoDrawList & drawlist,
+                                      const SbMat & viewMat,
+                                      const SbMat & projMat,
+                                      const SoRenderParams & params)
+{
+  // Skip during interactive navigation (no preselection during orbit/pan/zoom)
   bool interactive = (params.flags & SO_PARAM_INTERACTIVE) != 0;
   bool skipIdBuffer = (params.flags & SO_PARAM_SKIP_ID) != 0;
-  if (pickBuffer && !interactive && !skipIdBuffer) {
-    const auto & lut = drawlist.getPickLUT();
-    SbVec2s vpSize = params.viewport.getViewportSizePixels();
-    // Render ID buffer at half resolution — 4x less fragment work.
-    // Pick radius and line/point sizes still provide adequate coverage.
-    int idW = std::max(1, static_cast<int>(vpSize[0]) / 2);
-    int idH = std::max(1, static_cast<int>(vpSize[1]) / 2);
-    pickBuffer->resize(idW, idH);
-    pickBuffer->setPickScale(static_cast<float>(idW) / vpSize[0],
-                             static_cast<float>(idH) / vpSize[1]);
+  if (!pickBuffer || interactive || skipIdBuffer) return;
 
-    if (lut.size() != lastPickLUTSize) {
-      pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
-      lastPickLUTSize = lut.size();
-      pickBufferDirty = true;
-    }
+  const int count = drawlist.getNumCommands();
+  const auto & lut = drawlist.getPickLUT();
+  SbVec2s vpSize = params.viewport.getViewportSizePixels();
 
-    if (pickBufferDirty && !lut.empty()) {
-      // Build per-command VBO info array so the ID pass can reuse cached VBOs
-      std::vector<SoIDPassVBOInfo> vboInfo(count);
-      for (int i = 0; i < count; ++i) {
-        const SoRenderCommand & cmd = drawlist.getCommand(i);
-        vboInfo[i] = {0, 0, 0};
-        if (!cmd.geometry.positions) continue;
-        auto it = ptrToCacheIndex.find(
-          CacheKey{cmd.geometry.positions, cmd.geometry.indices});
-        if (it != ptrToCacheIndex.end()) {
-          const CachedGPUCommand & entry = gpuCache[it->second];
-          vboInfo[i].posVBO = entry.posVBO;
-          vboInfo[i].idxVBO = entry.idxVBO;
-          vboInfo[i].vertexStride = entry.vertexStride;
-        }
-      }
-      pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist,
-                         vboInfo.data(), count);
-      pickBufferDirty = false;
-    }
+  // Render ID buffer at half resolution — 4x less fragment work.
+  // Pick radius and line/point sizes still provide adequate coverage.
+  int idW = std::max(1, static_cast<int>(vpSize[0]) / 2);
+  int idH = std::max(1, static_cast<int>(vpSize[1]) / 2);
+  pickBuffer->resize(idW, idH);
+  pickBuffer->setPickScale(static_cast<float>(idW) / vpSize[0],
+                           static_cast<float>(idH) / vpSize[1]);
 
-    static int showIdBuffer = -1;
-    if (showIdBuffer < 0) {
-      const char * env = coin_getenv("FREECAD_SHOW_ID_BUFFER");
-      showIdBuffer = (env && env[0] == '1') ? 1 : 0;
-    }
-    if (showIdBuffer) {
-      pickBuffer->blitToScreen(vpSize[0], vpSize[1]);
-    }
+  if (lut.size() != lastPickLUTSize) {
+    pickBuffer->buildIdColorVBOs(drawlist, params.contextId);
+    lastPickLUTSize = lut.size();
+    pickBufferDirty = true;
   }
+
+  if (pickBufferDirty && !lut.empty()) {
+    // Build per-command VBO info array so the ID pass can reuse cached VBOs
+    std::vector<SoIDPassVBOInfo> vboInfo(count);
+    for (int i = 0; i < count; ++i) {
+      const SoRenderCommand & cmd = drawlist.getCommand(i);
+      vboInfo[i] = {0, 0, 0};
+      if (!cmd.geometry.positions) continue;
+      auto it = ptrToCacheIndex.find(
+        CacheKey{cmd.geometry.positions, cmd.geometry.indices});
+      if (it != ptrToCacheIndex.end()) {
+        const CachedGPUCommand & entry = gpuCache[it->second];
+        vboInfo[i].posVBO = entry.posVBO;
+        vboInfo[i].idxVBO = entry.idxVBO;
+        vboInfo[i].vertexStride = entry.vertexStride;
+      }
+    }
+    pickBuffer->render(&viewMat[0][0], &projMat[0][0], drawlist,
+                       vboInfo.data(), count);
+    pickBufferDirty = false;
+  }
+
+  static int showIdBuffer = -1;
+  if (showIdBuffer < 0) {
+    const char * env = coin_getenv("FREECAD_SHOW_ID_BUFFER");
+    showIdBuffer = (env && env[0] == '1') ? 1 : 0;
+  }
+  if (showIdBuffer) {
+    pickBuffer->blitToScreen(vpSize[0], vpSize[1]);
+  }
+}
+
+// -----------------------------------------------------------------------
+// Render — orchestrator
+// -----------------------------------------------------------------------
+
+SbBool
+SoModernGLBackend::render(const SoDrawList & drawlist,
+                          const SoRenderParams & params)
+{
+  ZoneScopedN("GLBackend::render");
+  if (!this->shaderProgram) return TRUE;
+
+  SbMat viewMat, projMat;
+  params.viewMatrix.getValue(viewMat);
+  params.projMatrix.getValue(projMat);
+
+  beginFrame(drawlist, params);
+  updateGeometryCache(drawlist);
+  renderBackgroundPass(drawlist, viewMat, projMat, params);
+  renderMainScenePass(drawlist, viewMat, projMat, params);
+  renderSelectionPass(drawlist, viewMat, projMat);
+  endFrame();
+  renderIDBufferPass(drawlist, viewMat, projMat, params);
 
   return TRUE;
 }

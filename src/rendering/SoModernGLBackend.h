@@ -98,6 +98,22 @@ private:
                    const SbMat & projMat,
                    const SoRenderParams & params);
 
+  // --- Render pass methods ---
+  void beginFrame(const SoDrawList & drawlist, const SoRenderParams & params);
+  void updateGeometryCache(const SoDrawList & drawlist);
+  void renderBackgroundPass(const SoDrawList & drawlist,
+                            const SbMat & viewMat, const SbMat & projMat,
+                            const SoRenderParams & params);
+  void renderMainScenePass(const SoDrawList & drawlist,
+                           const SbMat & viewMat, const SbMat & projMat,
+                           const SoRenderParams & params);
+  void renderSelectionPass(const SoDrawList & drawlist,
+                           const SbMat & viewMat, const SbMat & projMat);
+  void endFrame();
+  void renderIDBufferPass(const SoDrawList & drawlist,
+                          const SbMat & viewMat, const SbMat & projMat,
+                          const SoRenderParams & params);
+
   CachedGPUCommand & getOrCreateCache(const float * posPtr, const uint32_t * idxPtr);
   void uploadGeometry(CachedGPUCommand & entry, const SoRenderCommand & cmd);
   void setupVisualVAO(CachedGPUCommand & entry, const SoRenderCommand & cmd);
