@@ -344,6 +344,67 @@ SoModernGLBackend::uploadGeometry(CachedGPUCommand & entry,
                  cmd.geometry.indices, GL_STATIC_DRAW);
   }
 
+  // Per-vertex cumulative distance VBO for shader-based line stipple.
+  // Computed for all line topologies so stipple works on curves.
+  if (cmd.geometry.topology == SO_TOPOLOGY_LINES
+      || cmd.geometry.topology == SO_TOPOLOGY_LINE_STRIP) {
+    uint32_t vCount = cmd.geometry.vertexCount;
+    std::vector<float> dist(vCount, 0.0f);
+    const float * pos = cmd.geometry.positions;
+    GLsizei bstride = static_cast<GLsizei>(
+      cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+    int floatStride = bstride / static_cast<int>(sizeof(float));
+
+    if (cmd.geometry.topology == SO_TOPOLOGY_LINE_STRIP) {
+      // Cumulative distance from vertex 0
+      if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+        const uint32_t * idx = cmd.geometry.indices;
+        for (uint32_t i = 1; i < cmd.geometry.indexCount; i++) {
+          const float * p0 = pos + idx[i - 1] * floatStride;
+          const float * p1 = pos + idx[i] * floatStride;
+          float dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+          dist[idx[i]] = dist[idx[i - 1]] + std::sqrt(dx*dx + dy*dy + dz*dz);
+        }
+      } else {
+        for (uint32_t i = 1; i < vCount; i++) {
+          const float * p0 = pos + (i - 1) * floatStride;
+          const float * p1 = pos + i * floatStride;
+          float dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+          dist[i] = dist[i - 1] + std::sqrt(dx*dx + dy*dy + dz*dz);
+        }
+      }
+    } else {
+      // GL_LINES: each pair starts at 0, ends at segment length
+      if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
+        const uint32_t * idx = cmd.geometry.indices;
+        for (uint32_t i = 0; i + 1 < cmd.geometry.indexCount; i += 2) {
+          const float * p0 = pos + idx[i] * floatStride;
+          const float * p1 = pos + idx[i + 1] * floatStride;
+          float dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+          dist[idx[i]] = 0.0f;
+          dist[idx[i + 1]] = std::sqrt(dx*dx + dy*dy + dz*dz);
+        }
+      } else {
+        for (uint32_t i = 0; i + 1 < vCount; i += 2) {
+          const float * p0 = pos + i * floatStride;
+          const float * p1 = pos + (i + 1) * floatStride;
+          float dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
+          dist[i] = 0.0f;
+          dist[i + 1] = std::sqrt(dx*dx + dy*dy + dz*dz);
+        }
+      }
+    }
+
+    if (entry.lineDistVBO == 0) glGenBuffers(1, &entry.lineDistVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, entry.lineDistVBO);
+    glBufferData(GL_ARRAY_BUFFER, vCount * sizeof(float),
+                 dist.data(), GL_STATIC_DRAW);
+  }
+  else if (entry.lineDistVBO) {
+    glDeleteBuffers(1, &entry.lineDistVBO);
+    entry.lineDistVBO = 0;
+  }
+
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
@@ -399,6 +460,19 @@ SoModernGLBackend::setupVisualVAO(CachedGPUCommand & entry,
     }
   }
 
+  // Line distance attribute (cumulative object-space distance for stipple)
+  if (this->lineDistLoc >= 0) {
+    if (entry.lineDistVBO) {
+      glBindBuffer(GL_ARRAY_BUFFER, entry.lineDistVBO);
+      glEnableVertexAttribArray(this->lineDistLoc);
+      glVertexAttribPointer(this->lineDistLoc, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+    }
+    else {
+      glDisableVertexAttribArray(this->lineDistLoc);
+      glVertexAttrib1f(this->lineDistLoc, 0.0f);
+    }
+  }
+
   // Texcoord attribute (for textured commands — billboard/world-space)
   if (this->texcoordLoc >= 0) {
     if (entry.texcoordVBO) {
@@ -429,6 +503,7 @@ SoModernGLBackend::destroyCacheEntry(CachedGPUCommand & entry)
   if (entry.normVBO) { glDeleteBuffers(1, &entry.normVBO); entry.normVBO = 0; }
   if (entry.colorVBO) { glDeleteBuffers(1, &entry.colorVBO); entry.colorVBO = 0; }
   if (entry.texcoordVBO) { glDeleteBuffers(1, &entry.texcoordVBO); entry.texcoordVBO = 0; }
+  if (entry.lineDistVBO) { glDeleteBuffers(1, &entry.lineDistVBO); entry.lineDistVBO = 0; }
   if (entry.textureId) { glDeleteTextures(1, &entry.textureId); entry.textureId = 0; }
   if (entry.idxVBO) { glDeleteBuffers(1, &entry.idxVBO); entry.idxVBO = 0; }
   if (entry.vao) { glDeleteVertexArrays(1, &entry.vao); entry.vao = 0; }
@@ -553,14 +628,28 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
   }
 
-  // Line stipple pattern (dashed/dotted lines)
+  // Line stipple pattern (dashed/dotted lines) — shader-based via u_stipplePeriod.
+  // Compute the stipple period in object-space units by projecting a unit
+  // vector through the MVP to get the pixels-per-unit scale at this object.
   uint16_t pattern = cmd.state.raster.linePattern;
   bool useStipple = (pattern != 0 && pattern != 0xFFFF)
                  && (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1);
   if (useStipple) {
-    glEnable(GL_LINE_STIPPLE);
-    glLineStipple(std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1),
-                  static_cast<GLushort>(pattern));
+    int factor = std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1);
+    float pixelPeriod = static_cast<float>(factor * 16);
+
+    // Project origin and unit X through MVP to get screen scale
+    SbMatrix mvp = cmd.modelMatrix;
+    mvp.multRight(params.viewMatrix);
+    mvp.multRight(params.projMatrix);
+    SbVec3f ndc0, ndc1;
+    mvp.multVecMatrix(SbVec3f(0, 0, 0), ndc0);
+    mvp.multVecMatrix(SbVec3f(1, 0, 0), ndc1);
+    SbVec2s vpSz = params.viewport.getViewportSizePixels();
+    float pixPerUnit = (ndc1 - ndc0).length() * vpSz[0] * 0.5f;
+    float objectPeriod = (pixPerUnit > 0.001f) ? pixelPeriod / pixPerUnit : 1.0f;
+
+    glUniform1f(this->uStipplePeriodLocation, objectPeriod);
   }
 
   // Polygon offset: push faces back so coplanar edges render on top
@@ -645,7 +734,7 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glDisable(GL_POLYGON_OFFSET_FILL);
   }
   if (useStipple) {
-    glDisable(GL_LINE_STIPPLE);
+    glUniform1f(this->uStipplePeriodLocation, 0.0f);
   }
   if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -706,8 +795,15 @@ SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
   glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
   glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
-  // Default: lighting enabled
+  // Default: lighting enabled, no stipple
   glUniform1f(this->uRenderModeLocation, 0.0f);
+  glUniform1f(this->uStipplePeriodLocation, 0.0f);
+
+  // Viewport size for line stipple derivatives and billboard sizing
+  SbVec2s vpSz = params.viewport.getViewportSizePixels();
+  glUniform2f(this->uVpSizeLocation,
+              static_cast<float>(vpSz[0]),
+              static_cast<float>(vpSz[1]));
 }
 
 void
@@ -1060,6 +1156,7 @@ SoModernGLBackend::createShaders()
     "attribute vec3 a_normal;\n"
     "attribute vec4 a_color;\n"
     "attribute vec2 a_texcoord;\n"
+    "attribute float a_lineDistance;\n"
     "uniform mat4 u_proj;\n"
     "uniform mat4 u_view;\n"
     "uniform mat4 u_model;\n"
@@ -1074,6 +1171,8 @@ SoModernGLBackend::createShaders()
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
     "varying vec2 v_texcoord;\n"
+    "varying vec2 v_winPos;\n"
+    "varying float v_lineDistance;\n"
     "void main() {\n"
     "  v_color = (u_useVertexColor > 0.5) ? a_color : u_color;\n"
     "  v_texcoord = a_texcoord;\n"
@@ -1085,12 +1184,18 @@ SoModernGLBackend::createShaders()
     "    gl_Position = centerClip + vec4(ndcOffset * centerClip.w, 0.0, 0.0);\n"
     "    v_eyePos = vec3(0.0);\n"
     "    v_eyeNormal = vec3(0.0, 0.0, 1.0);\n"
+    "    v_winPos = vec2(0.0);\n"
+    "    v_lineDistance = 0.0;\n"
     "  } else {\n"
     "    vec4 worldPos = u_model * vec4(a_position, 1.0);\n"
     "    vec4 eyePos = u_view * worldPos;\n"
     "    v_eyePos = eyePos.xyz;\n"
     "    v_eyeNormal = mat3(u_view) * mat3(u_model) * a_normal;\n"
     "    gl_Position = u_proj * eyePos;\n"
+    "    v_winPos = (gl_Position.xy / gl_Position.w + 1.0) * 0.5 * u_vpSize;\n"
+    // Pass object-space distance unscaled — fragment shader converts
+    // to screen pixels via dFdx/dFdy derivatives
+    "    v_lineDistance = a_lineDistance;\n"
     "  }\n"
     "}\n";
 
@@ -1100,10 +1205,13 @@ SoModernGLBackend::createShaders()
     "uniform vec3 u_emissiveColor;\n"
     "uniform sampler2D u_texture;\n"
     "uniform vec4 u_texModColor;\n"
+    "uniform float u_stipplePeriod;\n"
     "varying vec3 v_eyePos;\n"
     "varying vec3 v_eyeNormal;\n"
     "varying vec4 v_color;\n"
     "varying vec2 v_texcoord;\n"
+    "varying vec2 v_winPos;\n"
+    "varying float v_lineDistance;\n"
     "void main() {\n"
     // Mode 1/1.5: flat/unlit (BASE_COLOR, lines, selection overlay, points)
     // 1.0 = flat, 1.5 = flat + point circle discard (replaces GL_POINT_SMOOTH)
@@ -1111,6 +1219,11 @@ SoModernGLBackend::createShaders()
     "    if (u_renderMode > 1.2) {\n"
     "      vec2 pc = gl_PointCoord - vec2(0.5);\n"
     "      if (dot(pc, pc) > 0.25) discard;\n"
+    "    }\n"
+    // Line stipple: u_stipplePeriod is in object-space units (computed from
+    // MVP on CPU), so just test cumulative distance directly. No derivatives.
+    "    if (u_stipplePeriod > 0.0) {\n"
+    "      if (mod(v_lineDistance, u_stipplePeriod) > u_stipplePeriod * 0.5) discard;\n"
     "    }\n"
     "    gl_FragColor = v_color;\n"
     "    return;\n"
@@ -1162,6 +1275,7 @@ SoModernGLBackend::createShaders()
   glBindAttribLocation(prog, 1, "a_normal");
   glBindAttribLocation(prog, 2, "a_color");
   glBindAttribLocation(prog, 3, "a_texcoord");
+  glBindAttribLocation(prog, 4, "a_lineDistance");
   glLinkProgram(prog);
   GLint linkStatus = GL_FALSE;
   glGetProgramiv(prog, GL_LINK_STATUS, &linkStatus);
@@ -1194,7 +1308,9 @@ SoModernGLBackend::createShaders()
   this->uQuadCenterLocation = glGetUniformLocation(this->shaderProgram, "u_quadCenter");
   this->uTexSizeLocation = glGetUniformLocation(this->shaderProgram, "u_texSize");
   this->uVpSizeLocation = glGetUniformLocation(this->shaderProgram, "u_vpSize");
+  this->uStipplePeriodLocation = glGetUniformLocation(this->shaderProgram, "u_stipplePeriod");
   this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
+  this->lineDistLoc = glGetAttribLocation(this->shaderProgram, "a_lineDistance");
 
   return TRUE;
 }

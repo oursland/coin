@@ -19,6 +19,7 @@ struct CachedGPUCommand {
   GLuint normVBO = 0;
   GLuint colorVBO = 0;
   GLuint texcoordVBO = 0;
+  GLuint lineDistVBO = 0;  // cumulative object-space distance for line stipple
   GLuint textureId = 0;  // GL texture for embedded textures (SoImage)
   GLuint idxVBO = 0;
   GLuint vao = 0;       // visual pass VAO (pos + norm + color + idx)
@@ -135,10 +136,12 @@ private:
   GLint  uQuadCenterLocation = -1;
   GLint  uTexSizeLocation = -1;
   GLint  uVpSizeLocation = -1;
+  GLint  uStipplePeriodLocation = -1;
   GLint posLoc = -1;
   GLint normLoc = -1;
   GLint colorLoc = -1;
   GLint texcoordLoc = -1;
+  GLint lineDistLoc = -1;
 
   // Per-command GPU cache, keyed by (positions ptr, indices ptr) pair.
   // Two commands may share the same coordinate data but have different
