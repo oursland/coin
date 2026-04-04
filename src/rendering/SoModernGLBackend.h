@@ -92,6 +92,12 @@ private:
                      const SoRenderParams & params) const;
   bool createShaders();
 
+  /// Draw a single cached command — sets per-command GL state, draws, restores.
+  void drawCommand(const SoRenderCommand & cmd,
+                   const SbMat & viewMat,
+                   const SbMat & projMat,
+                   const SoRenderParams & params);
+
   CachedGPUCommand & getOrCreateCache(const float * posPtr, const uint32_t * idxPtr);
   void uploadGeometry(CachedGPUCommand & entry, const SoRenderCommand & cmd);
   void setupVisualVAO(CachedGPUCommand & entry, const SoRenderCommand & cmd);

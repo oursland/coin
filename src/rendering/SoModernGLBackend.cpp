@@ -472,6 +472,223 @@ SoModernGLBackend::getCachedCommand(int cmdIndex) const
 }
 
 // -----------------------------------------------------------------------
+// Draw Command — per-command GL state, draw call, state restore
+// -----------------------------------------------------------------------
+
+void
+SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
+                               const SbMat & viewMat,
+                               const SbMat & projMat,
+                               const SoRenderParams & params)
+{
+  if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
+  if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) return;
+  if (cmd.geometry.indexCount > 0 && !cmd.geometry.indices) return;
+
+  auto it = ptrToCacheIndex.find(CacheKey{cmd.geometry.positions, cmd.geometry.indices});
+  if (it == ptrToCacheIndex.end()) return;
+  const CachedGPUCommand & entry = gpuCache[it->second];
+  if (entry.vao == 0) return;
+
+  // Per-command model matrix; view/proj from params (auto-clipped) for
+  // main scene, or per-command for overlay/background (different camera).
+  SbMat modelMat;
+  cmd.modelMatrix.getValue(modelMat);
+  glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+  if (cmd.pass == SO_RENDERPASS_OVERLAY) {
+    SbMat cmdViewMat, cmdProjMat;
+    cmd.viewMatrix.getValue(cmdViewMat);
+    cmd.projMatrix.getValue(cmdProjMat);
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+  } else {
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
+  }
+
+  // Per-command color — use vertex colors if available
+  bool hasVertexColors = (entry.colorVBO != 0);
+  glUniform1f(this->uUseVertexColorLocation, hasVertexColors ? 1.0f : 0.0f);
+  const SbVec4f & diffuse = cmd.material.diffuse;
+  glUniform4f(this->uColorLocation,
+              diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
+
+  GLenum prim = topologyToGL(cmd.geometry.topology);
+
+  // Per-command depth state: for non-overlay commands that individually
+  // disable depth (e.g. constraint depth buffer nodes), handle per-command.
+  // Overlay commands use the overlay pass's depth state instead.
+  if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
+    glDisable(GL_DEPTH_TEST);
+  }
+
+  // Per-command backface culling
+  if (cmd.state.raster.cullMode != 0) {
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CCW);
+  }
+
+  // Flat (unlit) rendering for points, lines, and BASE_COLOR materials.
+  // Points/lines have zero normals; BASE_COLOR materials use emissive
+  // as the display color (e.g. rotation center sphere, annotations).
+  bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP
+                    || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
+  glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
+
+  // Per-command emissive color for Blinn-Phong (added to lighting result)
+  const SbVec4f & ec = cmd.material.emissive;
+  glUniform3f(this->uEmissiveColorLocation, ec[0], ec[1], ec[2]);
+
+  // Wireframe draw style: render triangles as lines
+  uint8_t fillMode = cmd.state.raster.fillMode;
+  if (fillMode == 1 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  }
+  else if (fillMode == 2 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+  }
+
+  if (prim == GL_POINTS || fillMode == 2) {
+    float ps = cmd.state.raster.pointSize;
+    if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
+    glPointSize(std::max(ps, 1.0f));
+    glEnable(GL_POINT_SMOOTH);
+    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  }
+  if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
+    glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
+  }
+
+  // Line stipple pattern (dashed/dotted lines)
+  uint16_t pattern = cmd.state.raster.linePattern;
+  bool useStipple = (pattern != 0 && pattern != 0xFFFF)
+                 && (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1);
+  if (useStipple) {
+    glEnable(GL_LINE_STIPPLE);
+    glLineStipple(std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1),
+                  static_cast<GLushort>(pattern));
+  }
+
+  // Polygon offset: push faces back so coplanar edges render on top
+  float oFactor = cmd.state.raster.polygonOffsetFactor;
+  float oUnits = cmd.state.raster.polygonOffsetUnits;
+  bool useOffset = (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)
+                && fillMode == 0
+                && (oFactor != 0.0f || oUnits != 0.0f);
+  if (useOffset) {
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(oFactor, oUnits);
+  }
+
+  // Textured commands use a separate shader program
+  bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
+                     && this->texShaderProgram != 0);
+  if (isTextured) {
+    bool isBillboard = (cmd.material.flags & SO_MAT_IS_BILLBOARD) != 0;
+    glUseProgram(this->texShaderProgram);
+    if (cmd.pass == SO_RENDERPASS_OVERLAY) {
+      SbMat cmdViewMat, cmdProjMat;
+      cmd.viewMatrix.getValue(cmdViewMat);
+      cmd.projMatrix.getValue(cmdProjMat);
+      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+    } else {
+      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
+    }
+    glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+    glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
+
+    if (isBillboard) {
+      // Compute quad center from vertex positions (average of all vertices)
+      float cx = 0, cy = 0, cz = 0;
+      GLsizei stride = static_cast<GLsizei>(
+        cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+      for (uint32_t vi = 0; vi < cmd.geometry.vertexCount; vi++) {
+        const float * p = reinterpret_cast<const float *>(
+          reinterpret_cast<const char *>(cmd.geometry.positions) + vi * stride);
+        cx += p[0]; cy += p[1]; cz += p[2];
+      }
+      float n = static_cast<float>(cmd.geometry.vertexCount);
+      glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
+
+      // Texture pixel size and viewport size
+      glUniform2f(this->texUTexSizeLocation,
+                  static_cast<float>(cmd.material.texture.width),
+                  static_cast<float>(cmd.material.texture.height));
+      SbVec2s vpSz = params.viewport.getViewportSizePixels();
+      glUniform2f(this->texUVpSizeLocation,
+                  static_cast<float>(vpSz[0]),
+                  static_cast<float>(vpSz[1]));
+    }
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, entry.textureId);
+    glUniform1i(this->texUTextureLocation, 0);
+    // Modulate texture with diffuse color (MODULATE mode for NaviCube labels).
+    // Billboard textures (SoImage, SoText2) use white modulation (pass-through).
+    const SbVec4f & diff = cmd.material.diffuse;
+    if (isBillboard) {
+      glUniform4f(this->texUModColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
+    } else {
+      glUniform4f(this->texUModColorLocation, diff[0], diff[1], diff[2], diff[3]);
+    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (isBillboard) {
+      glDepthFunc(GL_ALWAYS);  // billboards render on top
+    }
+    glBindVertexArray(entry.texVAO);
+  } else {
+    glBindVertexArray(entry.vao);
+  }
+
+  // --- Draw call ---
+  if (cmd.geometry.indexCount > 0) {
+    glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
+  }
+  else {
+    glDrawArrays(prim, 0, cmd.geometry.vertexCount);
+  }
+
+  // --- State restore ---
+  if (isTextured) {
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_BLEND);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glUseProgram(this->shaderProgram);
+  }
+
+  if (useOffset) {
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  }
+  if (useStipple) {
+    glDisable(GL_LINE_STIPPLE);
+  }
+  if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  }
+  if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
+    glEnable(GL_DEPTH_TEST);
+  }
+  if (prim == GL_POINTS || fillMode == 2) {
+    glDisable(GL_POINT_SMOOTH);
+    glDisable(GL_BLEND);
+    glPointSize(1.0f);
+  }
+  if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
+    glLineWidth(1.0f);
+  }
+  if (cmd.state.raster.cullMode != 0) {
+    glDisable(GL_CULL_FACE);
+  }
+}
+
+// -----------------------------------------------------------------------
 // Render
 // -----------------------------------------------------------------------
 
@@ -550,211 +767,6 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     }
   }
 
-  // --- Draw lambda: bind cached VAO, set uniforms, draw ---
-  auto drawCached = [&](const SoRenderCommand & cmd) {
-    if (cmd.geometry.vertexCount == 0 || !cmd.geometry.positions) return;
-    if (cmd.geometry.vertexCount > MAX_VERTEX_COUNT) return;
-    if (cmd.geometry.indexCount > 0 && !cmd.geometry.indices) return;
-
-    auto it = ptrToCacheIndex.find(CacheKey{cmd.geometry.positions, cmd.geometry.indices});
-    if (it == ptrToCacheIndex.end()) return;
-    const CachedGPUCommand & entry = gpuCache[it->second];
-    if (entry.vao == 0) return;
-
-    // Per-command model matrix; view/proj from params (auto-clipped) for
-    // main scene, or per-command for overlay/background (different camera).
-    SbMat modelMat;
-    cmd.modelMatrix.getValue(modelMat);
-    glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-    if (cmd.pass == SO_RENDERPASS_OVERLAY) {
-      SbMat cmdViewMat, cmdProjMat;
-      cmd.viewMatrix.getValue(cmdViewMat);
-      cmd.projMatrix.getValue(cmdProjMat);
-      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
-      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
-    } else {
-      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
-    }
-
-    // Per-command color — use vertex colors if available
-    bool hasVertexColors = (entry.colorVBO != 0);
-    glUniform1f(this->uUseVertexColorLocation, hasVertexColors ? 1.0f : 0.0f);
-    const SbVec4f & diffuse = cmd.material.diffuse;
-    glUniform4f(this->uColorLocation,
-                diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
-
-    GLenum prim = topologyToGL(cmd.geometry.topology);
-
-    // Per-command depth state: for non-overlay commands that individually
-    // disable depth (e.g. constraint depth buffer nodes), handle per-command.
-    // Overlay commands use the overlay pass's depth state instead.
-    if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
-      glDisable(GL_DEPTH_TEST);
-    }
-
-    // Per-command backface culling
-    if (cmd.state.raster.cullMode != 0) {
-      glEnable(GL_CULL_FACE);
-      glCullFace(GL_BACK);
-      glFrontFace(GL_CCW);
-    }
-
-    // Flat (unlit) rendering for points, lines, and BASE_COLOR materials.
-    // Points/lines have zero normals; BASE_COLOR materials use emissive
-    // as the display color (e.g. rotation center sphere, annotations).
-    bool flatColor = (prim == GL_POINTS || prim == GL_LINES || prim == GL_LINE_STRIP
-                      || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
-    glUniform1f(this->uEmissiveLocation, flatColor ? 1.0f : 0.0f);
-
-    // Per-command emissive color for Blinn-Phong (added to lighting result)
-    const SbVec4f & ec = cmd.material.emissive;
-    glUniform3f(this->uEmissiveColorLocation, ec[0], ec[1], ec[2]);
-
-
-    // Wireframe draw style: render triangles as lines
-    uint8_t fillMode = cmd.state.raster.fillMode;
-    if (fillMode == 1 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
-      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    }
-    else if (fillMode == 2 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
-      glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
-    }
-
-    if (prim == GL_POINTS || fillMode == 2) {
-      float ps = cmd.state.raster.pointSize;
-      if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
-      glPointSize(std::max(ps, 1.0f));
-      glEnable(GL_POINT_SMOOTH);
-      glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    }
-    if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
-      glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
-    }
-
-    // Line stipple pattern (dashed/dotted lines)
-    uint16_t pattern = cmd.state.raster.linePattern;
-    bool useStipple = (pattern != 0 && pattern != 0xFFFF)
-                   && (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1);
-    if (useStipple) {
-      glEnable(GL_LINE_STIPPLE);
-      glLineStipple(std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1),
-                    static_cast<GLushort>(pattern));
-    }
-
-    // Polygon offset: push faces back so coplanar edges render on top
-    float oFactor = cmd.state.raster.polygonOffsetFactor;
-    float oUnits = cmd.state.raster.polygonOffsetUnits;
-    bool useOffset = (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)
-                  && fillMode == 0
-                  && (oFactor != 0.0f || oUnits != 0.0f);
-    if (useOffset) {
-      glEnable(GL_POLYGON_OFFSET_FILL);
-      glPolygonOffset(oFactor, oUnits);
-    }
-
-    // Textured commands use a separate shader program
-    bool isTextured = (entry.textureId != 0 && entry.texVAO != 0
-                       && this->texShaderProgram != 0);
-    if (isTextured) {
-      bool isBillboard = (cmd.material.flags & SO_MAT_IS_BILLBOARD) != 0;
-      glUseProgram(this->texShaderProgram);
-      if (cmd.pass == SO_RENDERPASS_OVERLAY) {
-        SbMat cmdViewMat, cmdProjMat;
-        cmd.viewMatrix.getValue(cmdViewMat);
-        cmd.projMatrix.getValue(cmdProjMat);
-        glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
-        glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
-      } else {
-        glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
-        glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
-      }
-      glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-      glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
-
-      if (isBillboard) {
-        // Compute quad center from vertex positions (average of all vertices)
-        float cx = 0, cy = 0, cz = 0;
-        GLsizei stride = static_cast<GLsizei>(
-          cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
-        for (uint32_t vi = 0; vi < cmd.geometry.vertexCount; vi++) {
-          const float * p = reinterpret_cast<const float *>(
-            reinterpret_cast<const char *>(cmd.geometry.positions) + vi * stride);
-          cx += p[0]; cy += p[1]; cz += p[2];
-        }
-        float n = static_cast<float>(cmd.geometry.vertexCount);
-        glUniform3f(this->texUQuadCenterLocation, cx / n, cy / n, cz / n);
-
-        // Texture pixel size and viewport size
-        glUniform2f(this->texUTexSizeLocation,
-                    static_cast<float>(cmd.material.texture.width),
-                    static_cast<float>(cmd.material.texture.height));
-        SbVec2s vpSz = params.viewport.getViewportSizePixels();
-        glUniform2f(this->texUVpSizeLocation,
-                    static_cast<float>(vpSz[0]),
-                    static_cast<float>(vpSz[1]));
-      }
-
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, entry.textureId);
-      glUniform1i(this->texUTextureLocation, 0);
-      // Modulate texture with diffuse color (MODULATE mode for NaviCube labels).
-      // Billboard textures (SoImage, SoText2) use white modulation (pass-through).
-      const SbVec4f & diff = cmd.material.diffuse;
-      if (isBillboard) {
-        glUniform4f(this->texUModColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
-      } else {
-        glUniform4f(this->texUModColorLocation, diff[0], diff[1], diff[2], diff[3]);
-      }
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      if (isBillboard) {
-        glDepthFunc(GL_ALWAYS);  // billboards render on top
-      }
-      glBindVertexArray(entry.texVAO);
-    } else {
-      glBindVertexArray(entry.vao);
-    }
-
-    if (cmd.geometry.indexCount > 0) {
-      glDrawElements(prim, cmd.geometry.indexCount, GL_UNSIGNED_INT, nullptr);
-    }
-    else {
-      glDrawArrays(prim, 0, cmd.geometry.vertexCount);
-    }
-
-    if (isTextured) {
-      glBindTexture(GL_TEXTURE_2D, 0);
-      glDisable(GL_BLEND);
-      glDepthFunc(GL_LEQUAL);
-      glDepthMask(GL_TRUE);
-      glUseProgram(this->shaderProgram);
-      // Per-command view/proj will be set by the next drawCached call
-    }
-
-    if (useOffset) {
-      glDisable(GL_POLYGON_OFFSET_FILL);
-    }
-    if (useStipple) {
-      glDisable(GL_LINE_STIPPLE);
-    }
-    if (fillMode != 0 && (prim == GL_TRIANGLES || prim == GL_TRIANGLE_STRIP)) {
-      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
-    if (!cmd.state.depth.enabled && cmd.pass != SO_RENDERPASS_OVERLAY) {
-      glEnable(GL_DEPTH_TEST);
-    }
-    if (prim == GL_POINTS || fillMode == 2) {
-      glDisable(GL_POINT_SMOOTH);
-      glDisable(GL_BLEND);
-    }
-    if (cmd.state.raster.cullMode != 0) {
-      glDisable(GL_CULL_FACE);
-    }
-  };
-
   // Iterate in sorted order: opaque front-to-back, then transparent back-to-front.
   // The sortedOrder array encodes pass type in the sort key, so opaque commands
   // Background pass: render background commands (gradient, etc.) first,
@@ -767,7 +779,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     for (int i = 0; i < bgCount && i < count; ++i) {
-      drawCached(drawlist.getCommand(i));
+      drawCommand(drawlist.getCommand(i), viewMat, projMat, params);
     }
     glEnable(GL_DEPTH_TEST);
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -806,7 +818,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       inOverlay = true;
     }
-    drawCached(cmd);
+    drawCommand(cmd, viewMat, projMat, params);
   }
 
   // Pass 3: Selection/highlight overlays — emissive flat color on top
