@@ -451,6 +451,9 @@ fillMaterialFromState(SoState * state, SoMaterialData & material)
   material.shininess = SoLazyElement::getShininess(mutableState);
   material.opacity = 1.0f - transparency;
 
+  material.metalness = 0.0f;   // dielectric (Blinn-Phong equivalent)
+  material.roughness = 0.5f;   // moderate roughness
+
   material.diffuseTexture = NULL;
   material.normalTexture = NULL;
   material.emissiveTexture = NULL;

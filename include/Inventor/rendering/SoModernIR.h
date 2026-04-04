@@ -111,6 +111,9 @@ struct SoMaterialData {
   void *   normalTexture;
   void *   emissiveTexture;
 
+  float    metalness;    //!< PBR metalness (0.0 = dielectric, 1.0 = metal)
+  float    roughness;    //!< PBR roughness (0.0 = mirror, 1.0 = fully rough)
+
   uint32_t flags;        //!< Material feature bits (vertex colors, two-sided, etc.)
   uint32_t featureFlags; //!< Mirrors shader feature selection; reserved for future use.
 };

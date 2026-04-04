@@ -607,9 +607,13 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
                     || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
   glUniform1f(this->uRenderModeLocation, flatColor ? 1.0f : 0.0f);
 
-  // Per-command emissive color for Blinn-Phong (added to lighting result)
+  // Per-command emissive color (added to lighting result)
   const SbVec4f & ec = cmd.material.emissive;
   glUniform3f(this->uEmissiveColorLocation, ec[0], ec[1], ec[2]);
+
+  // Per-command PBR material
+  glUniform1f(this->uMetalnessLocation, cmd.material.metalness);
+  glUniform1f(this->uRoughnessLocation, cmd.material.roughness);
 
   // Wireframe draw style: render triangles as lines
   uint8_t fillMode = cmd.state.raster.fillMode;
@@ -804,9 +808,11 @@ SoModernGLBackend::beginFrame(const SoDrawList & drawlist,
   glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
   glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
-  // Default: lighting enabled, no stipple
+  // Default: lighting enabled, no stipple, dielectric PBR
   glUniform1f(this->uRenderModeLocation, 0.0f);
   glUniform1f(this->uStipplePeriodLocation, 0.0f);
+  glUniform1f(this->uMetalnessLocation, 0.0f);
+  glUniform1f(this->uRoughnessLocation, 0.5f);
 
   // Viewport size for line stipple derivatives and billboard sizing
   SbVec2s vpSz = params.viewport.getViewportSizePixels();
@@ -1215,6 +1221,8 @@ SoModernGLBackend::createShaders()
     "uniform sampler2D u_texture;\n"
     "uniform vec4 u_texModColor;\n"
     "uniform float u_stipplePeriod;\n"
+    "uniform float u_metalness;\n"
+    "uniform float u_roughness;\n"
     "in vec3 v_eyePos;\n"
     "in vec3 v_eyeNormal;\n"
     "in vec4 v_color;\n"
@@ -1252,18 +1260,33 @@ SoModernGLBackend::createShaders()
     "    fragColor = c * u_texModColor;\n"
     "    return;\n"
     "  }\n"
-    // Mode 0: Blinn-Phong lit
+    // Mode 0: PBR lit (GGX/Cook-Torrance with Blinn-Phong-equivalent defaults)
+    // With metalness=0.0, roughness=0.5: dielectric, moderate highlight
     "  vec3 N = normalize(v_eyeNormal);\n"
-    "  if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) N = -N;\n"
-    "  vec3 L = vec3(0.0, 0.0, 1.0);\n"
-    "  float NdotL = dot(N, L);\n"
+    "  if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) N = -N;\n"  // two-sided
+    "  vec3 L = vec3(0.0, 0.0, 1.0);\n"  // view-space headlight
+    "  float NdotL = max(dot(N, L), 0.0);\n"
     "  vec3 V = normalize(-v_eyePos);\n"
     "  vec3 H = normalize(L + V);\n"
     "  float NdotH = max(dot(N, H), 0.0);\n"
-    "  float spec = pow(NdotH, 64.0);\n"  // DEFAULT_SHININESS
-    "  vec3 ambient = 0.25 * v_color.rgb;\n"  // AMBIENT_COEFF
-    "  vec3 diffuse = 0.85 * NdotL * v_color.rgb;\n"  // DIFFUSE_COEFF
-    "  vec3 specular = 0.12 * spec * vec3(1.0);\n"  // SPECULAR_COEFF
+    "  float VdotH = max(dot(V, H), 0.0);\n"
+    "\n"
+    "  vec3 baseColor = v_color.rgb;\n"
+    "  float roughSq = u_roughness * u_roughness;\n"
+    "\n"
+    // GGX Normal Distribution Function
+    "  float d = NdotH * NdotH * (roughSq - 1.0) + 1.0;\n"
+    "  float D = roughSq / (3.14159 * d * d);\n"
+    "\n"
+    // Fresnel-Schlick
+    "  vec3 F0 = mix(vec3(0.04), baseColor, u_metalness);\n"
+    "  vec3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);\n"
+    "\n"
+    // Simplified Cook-Torrance: D * F / 4 (omitting geometry term for perf)
+    "  vec3 specular = D * F * 0.25;\n"
+    "  vec3 diffuse = (1.0 - u_metalness) * NdotL * baseColor;\n"
+    "  vec3 ambient = 0.2 * baseColor;\n"  // AMBIENT_COEFF (PBR)
+    "\n"
     "  fragColor = vec4(ambient + diffuse + specular + u_emissiveColor, v_color.a);\n"
     "}\n";
 
@@ -1319,6 +1342,8 @@ SoModernGLBackend::createShaders()
   this->uTexSizeLocation = glGetUniformLocation(this->shaderProgram, "u_texSize");
   this->uVpSizeLocation = glGetUniformLocation(this->shaderProgram, "u_vpSize");
   this->uStipplePeriodLocation = glGetUniformLocation(this->shaderProgram, "u_stipplePeriod");
+  this->uMetalnessLocation = glGetUniformLocation(this->shaderProgram, "u_metalness");
+  this->uRoughnessLocation = glGetUniformLocation(this->shaderProgram, "u_roughness");
   this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
   this->lineDistLoc = glGetAttribLocation(this->shaderProgram, "a_lineDistance");
 
