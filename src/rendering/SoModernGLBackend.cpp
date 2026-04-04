@@ -886,51 +886,106 @@ SoModernGLBackend::renderBackgroundPass(const SoDrawList & drawlist,
 }
 
 void
-SoModernGLBackend::renderMainScenePass(const SoDrawList & drawlist,
-                                       const SbMat & viewMat,
-                                       const SbMat & projMat,
-                                       const SoRenderParams & params)
+SoModernGLBackend::renderOpaquePass(const SoDrawList & drawlist,
+                                    const SbMat & viewMat,
+                                    const SbMat & projMat,
+                                    const SoRenderParams & params)
 {
   const int count = drawlist.getNumCommands();
   int bgCount = params.bgCommandCount;
-
-  // Main scene: sorted opaque front-to-back, then transparent back-to-front,
-  // then overlay (annotations) last.
   const auto & order = drawlist.getSortedOrder();
-  bool inTransparent = false;
-  bool inOverlay = false;
 
   glDepthMask(GL_TRUE);
   glDisable(GL_BLEND);
 
   for (int si = 0; si < count; ++si) {
     int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
-    // Skip background commands — already rendered
     if (ci < bgCount) continue;
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
+    if (cmd.pass != SO_RENDERPASS_OPAQUE) continue;
+    drawCommand(cmd, viewMat, projMat, params);
+  }
+}
 
-    if (!inTransparent && cmd.pass == SO_RENDERPASS_TRANSPARENT) {
-      // Switch to transparent state
-      glDepthMask(GL_FALSE);
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      inTransparent = true;
-    }
-    if (!inOverlay && cmd.pass == SO_RENDERPASS_OVERLAY) {
-      // Switch to overlay state: disable depth so overlays render on top
-      // of the main scene. Depth is disabled rather than cleared+enabled
-      // to avoid ordering conflicts between overlay groups (annotations
-      // vs NaviCube).
-      glDisable(GL_DEPTH_TEST);
-      glDepthMask(GL_FALSE);
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-      inOverlay = true;
-    }
+void
+SoModernGLBackend::renderTransparentPass(const SoDrawList & drawlist,
+                                         const SbMat & viewMat,
+                                         const SbMat & projMat,
+                                         const SoRenderParams & params)
+{
+  const int count = drawlist.getNumCommands();
+  int bgCount = params.bgCommandCount;
+  const auto & order = drawlist.getSortedOrder();
+
+  glDepthMask(GL_FALSE);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  for (int si = 0; si < count; ++si) {
+    int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
+    if (ci < bgCount) continue;
+    const SoRenderCommand & cmd = drawlist.getCommand(ci);
+    if (cmd.pass != SO_RENDERPASS_TRANSPARENT) continue;
     drawCommand(cmd, viewMat, projMat, params);
   }
 
-  // Restore default state after main scene
+  // Restore default state
+  glDepthMask(GL_TRUE);
+  glDisable(GL_BLEND);
+}
+
+void
+SoModernGLBackend::renderOverlayPass(const SoDrawList & drawlist,
+                                     const SbMat & viewMat,
+                                     const SbMat & projMat,
+                                     const SoRenderParams & params)
+{
+  const int count = drawlist.getNumCommands();
+  int bgCount = params.bgCommandCount;
+  const auto & order = drawlist.getSortedOrder();
+
+  // Collect overlay commands, partitioned into 3D (own camera, e.g. NaviCube)
+  // and 2D (annotations, constraint labels — use main camera).
+  SbMatrix mainView = params.viewMatrix;
+  std::vector<int> overlay3D, overlay2D;
+  for (int si = 0; si < count; ++si) {
+    int ci = (si < static_cast<int>(order.size())) ? order[si] : si;
+    if (ci < bgCount) continue;
+    const SoRenderCommand & cmd = drawlist.getCommand(ci);
+    if (cmd.pass != SO_RENDERPASS_OVERLAY) continue;
+    // 3D overlays have their own camera (viewMatrix differs from main scene)
+    if (cmd.viewMatrix != mainView) {
+      overlay3D.push_back(ci);
+    } else {
+      overlay2D.push_back(ci);
+    }
+  }
+
+  // 3D overlays (NaviCube): clear depth, enable depth test for self-occlusion
+  if (!overlay3D.empty()) {
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    for (int ci : overlay3D) {
+      drawCommand(drawlist.getCommand(ci), viewMat, projMat, params);
+    }
+  }
+
+  // 2D overlays (annotations): depth disabled, render on top of everything
+  if (!overlay2D.empty()) {
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    for (int ci : overlay2D) {
+      drawCommand(drawlist.getCommand(ci), viewMat, projMat, params);
+    }
+  }
+
+  // Restore default state
   glEnable(GL_DEPTH_TEST);
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_TRUE);
@@ -1125,8 +1180,10 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   beginFrame(drawlist, params);
   updateGeometryCache(drawlist);
   renderBackgroundPass(drawlist, viewMat, projMat, params);
-  renderMainScenePass(drawlist, viewMat, projMat, params);
+  renderOpaquePass(drawlist, viewMat, projMat, params);
+  renderTransparentPass(drawlist, viewMat, projMat, params);
   renderSelectionPass(drawlist, viewMat, projMat);
+  renderOverlayPass(drawlist, viewMat, projMat, params);
   endFrame();
   renderIDBufferPass(drawlist, viewMat, projMat, params);
 
