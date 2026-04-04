@@ -536,7 +536,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
   SoModernRenderAction * action = PRIVATE(this)->modernAction;
   if (!action) {
-    action = new SoModernRenderAction(glaction->getViewportRegion());
+    action = new SoModernRenderAction(PRIVATE(this)->modernViewport);
     PRIVATE(this)->modernAction = action;
   }
 
@@ -545,7 +545,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
     backend = new SoModernGLBackend();
     PRIVATE(this)->modernBackend = backend;
     SoRenderBackendInitParams initparams = {};
-    SbVec2s size = glaction->getViewportRegion().getViewportSizePixels();
+    SbVec2s size = PRIVATE(this)->modernViewport.getViewportSizePixels();
     initparams.targetInfo.size = size;
     initparams.targetInfo.samples = 1;
     initparams.targetInfo.colorFormat = 0;
@@ -557,7 +557,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
 
   this->clearBuffers(clearwindow_tmp, clearzbuffer);
 
-  SbViewportRegion vp = PRIVATE(this)->glaction->getViewportRegion();
+  SbViewportRegion vp = PRIVATE(this)->modernViewport;
   action->setViewportRegion(vp);
   action->setCamera(PRIVATE(this)->camera);
 
@@ -1494,8 +1494,9 @@ SoRenderManager::setWindowSize(const SbVec2s & newsize)
                          "(%d, %d)", newsize[0], newsize[1]);
 #endif // debug
 
-  SbViewportRegion region = PRIVATE(this)->glaction->getViewportRegion();
+  SbViewportRegion region = PRIVATE(this)->modernViewport;
   region.setWindowSize(newsize[0], newsize[1]);
+  PRIVATE(this)->modernViewport = region;
   PRIVATE(this)->glaction->setViewportRegion(region);
 }
 
@@ -1507,7 +1508,7 @@ SoRenderManager::setWindowSize(const SbVec2s & newsize)
 const SbVec2s &
 SoRenderManager::getWindowSize(void) const
 {
-  return PRIVATE(this)->glaction->getViewportRegion().getWindowSize();
+  return PRIVATE(this)->modernViewport.getWindowSize();
 }
 
 /*!
@@ -1522,9 +1523,10 @@ SoRenderManager::setSize(const SbVec2s & newsize)
                          "(%d, %d)", newsize[0], newsize[1]);
 #endif // debug
 
-  SbViewportRegion region = PRIVATE(this)->glaction->getViewportRegion();
+  SbViewportRegion region = PRIVATE(this)->modernViewport;
   SbVec2s origin = region.getViewportOriginPixels();
   region.setViewportPixels(origin, newsize);
+  PRIVATE(this)->modernViewport = region;
   PRIVATE(this)->glaction->setViewportRegion(region);
 }
 
@@ -1534,7 +1536,7 @@ SoRenderManager::setSize(const SbVec2s & newsize)
 const SbVec2s &
 SoRenderManager::getSize(void) const
 {
-  return PRIVATE(this)->glaction->getViewportRegion().getViewportSizePixels();
+  return PRIVATE(this)->modernViewport.getViewportSizePixels();
 }
 
 /*!
@@ -1551,9 +1553,10 @@ SoRenderManager::setOrigin(const SbVec2s & newOrigin)
                          "(%d, %d)", newOrigin[0], newOrigin[1]);
 #endif // debug
 
-  SbViewportRegion region = PRIVATE(this)->glaction->getViewportRegion();
+  SbViewportRegion region = PRIVATE(this)->modernViewport;
   SbVec2s size = region.getViewportSizePixels();
   region.setViewportPixels(newOrigin, size);
+  PRIVATE(this)->modernViewport = region;
   PRIVATE(this)->glaction->setViewportRegion(region);
 }
 
@@ -1565,7 +1568,7 @@ SoRenderManager::setOrigin(const SbVec2s & newOrigin)
 const SbVec2s &
 SoRenderManager::getOrigin(void) const
 {
-  return PRIVATE(this)->glaction->getViewportRegion().getViewportOriginPixels();
+  return PRIVATE(this)->modernViewport.getViewportOriginPixels();
 }
 
 /*!
@@ -1579,6 +1582,7 @@ SoRenderManager::getOrigin(void) const
 void
 SoRenderManager::setViewportRegion(const SbViewportRegion & newregion)
 {
+  PRIVATE(this)->modernViewport = newregion;
   PRIVATE(this)->glaction->setViewportRegion(newregion);
 }
 
@@ -1591,7 +1595,7 @@ SoRenderManager::setViewportRegion(const SbViewportRegion & newregion)
 const SbViewportRegion &
 SoRenderManager::getViewportRegion(void) const
 {
-  return PRIVATE(this)->glaction->getViewportRegion();
+  return PRIVATE(this)->modernViewport;
 }
 
 /*!

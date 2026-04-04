@@ -135,6 +135,7 @@ public:
   SoNode * modernBackgroundRoot = NULL;
   SoNode * modernForegroundRoot = NULL;
   int modernBgCommandCount = 0;
+  SbViewportRegion modernViewport;  // viewport for modern renderer (replaces glaction viewport)
   int modernFrameCounter;
   bool drawListValid = false;
   bool hasCameraDependentShapes = false;
