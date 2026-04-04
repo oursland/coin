@@ -532,14 +532,21 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     const CachedGPUCommand & entry = gpuCache[it->second];
     if (entry.vao == 0) return;
 
-    // Per-command matrices
-    SbMat modelMat, cmdViewMat, cmdProjMat;
+    // Per-command model matrix; view/proj from params (auto-clipped) for
+    // main scene, or per-command for overlay/background (different camera).
+    SbMat modelMat;
     cmd.modelMatrix.getValue(modelMat);
-    cmd.viewMatrix.getValue(cmdViewMat);
-    cmd.projMatrix.getValue(cmdProjMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
-    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+    if (cmd.pass == SO_RENDERPASS_OVERLAY) {
+      SbMat cmdViewMat, cmdProjMat;
+      cmd.viewMatrix.getValue(cmdViewMat);
+      cmd.projMatrix.getValue(cmdProjMat);
+      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+    } else {
+      glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+      glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
+    }
 
     // Per-command color — use vertex colors if available
     bool hasVertexColors = (entry.colorVBO != 0);
@@ -625,8 +632,16 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     if (isTextured) {
       bool isBillboard = (cmd.material.flags & 0x2) != 0;
       glUseProgram(this->texShaderProgram);
-      glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
-      glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+      if (cmd.pass == SO_RENDERPASS_OVERLAY) {
+        SbMat cmdViewMat, cmdProjMat;
+        cmd.viewMatrix.getValue(cmdViewMat);
+        cmd.projMatrix.getValue(cmdProjMat);
+        glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &cmdViewMat[0][0]);
+        glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &cmdProjMat[0][0]);
+      } else {
+        glUniformMatrix4fv(this->texUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+        glUniformMatrix4fv(this->texUProjLocation, 1, GL_FALSE, &projMat[0][0]);
+      }
       glUniformMatrix4fv(this->texUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
       glUniform1f(this->texUBillboardLocation, isBillboard ? 1.0f : 0.0f);
 
@@ -752,12 +767,12 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
       inTransparent = true;
     }
     if (!inOverlay && cmd.pass == SO_RENDERPASS_OVERLAY) {
-      // Switch to overlay state: clear depth so overlays (NaviCube, annotations)
-      // are not occluded by the main scene, but CAN self-occlude.
-      glClear(GL_DEPTH_BUFFER_BIT);
-      glDepthMask(GL_TRUE);
-      glEnable(GL_DEPTH_TEST);
-      glDepthFunc(GL_LEQUAL);
+      // Switch to overlay state: disable depth so overlays render on top
+      // of the main scene. Depth is disabled rather than cleared+enabled
+      // to avoid ordering conflicts between overlay groups (annotations
+      // vs NaviCube).
+      glDisable(GL_DEPTH_TEST);
+      glDepthMask(GL_FALSE);
       glEnable(GL_BLEND);
       glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
       inOverlay = true;
@@ -812,13 +827,11 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
     const CachedGPUCommand & entry = gpuCache[it->second];
     if (entry.vao == 0) continue;
 
-    SbMat modelMat, selViewMat, selProjMat;
+    SbMat modelMat;
     cmd.modelMatrix.getValue(modelMat);
-    cmd.viewMatrix.getValue(selViewMat);
-    cmd.projMatrix.getValue(selProjMat);
     glUniformMatrix4fv(this->uModelLocation, 1, GL_FALSE, &modelMat[0][0]);
-    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &selViewMat[0][0]);
-    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &selProjMat[0][0]);
+    glUniformMatrix4fv(this->uViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+    glUniformMatrix4fv(this->uProjLocation, 1, GL_FALSE, &projMat[0][0]);
 
     GLenum prim = topologyToGL(cmd.geometry.topology);
 

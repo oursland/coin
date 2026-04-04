@@ -756,6 +756,8 @@ SoText2::render(SoModernRenderAction * action)
   cmd.geometry.topology = SO_TOPOLOGY_TRIANGLE_STRIP;
 
   cmd.modelMatrix = SoModelMatrixElement::get(state);
+  cmd.viewMatrix = SoViewingMatrixElement::get(state);
+  cmd.projMatrix = SoProjectionMatrixElement::get(state);
 
   // Fill material/state BEFORE setting texture (fillMaterial resets flags)
   SoModernIR::fillMaterialFromState(state, cmd.material);

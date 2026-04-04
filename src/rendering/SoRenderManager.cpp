@@ -562,6 +562,11 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   action->setCamera(PRIVATE(this)->camera);
 
   if (!PRIVATE(this)->drawListValid) {
+    // Auto-clip camera near/far planes to scene bounding box
+    if (PRIVATE(this)->autoclipping != SoRenderManager::NO_AUTO_CLIPPING) {
+      PRIVATE(this)->setClippingPlanes();
+    }
+
     // Traverse background root first (gradient, grid). These commands
     // are at the start of the draw list. The backend renders them before
     // clearing the depth buffer and rendering the main scene.

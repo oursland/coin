@@ -1418,6 +1418,8 @@ SoMarkerSet::render(SoModernRenderAction * action)
     cmd.geometry.topology = SO_TOPOLOGY_TRIANGLE_STRIP;
 
     cmd.modelMatrix = modelMatrix;
+    cmd.viewMatrix = SoViewingMatrixElement::get(state);
+    cmd.projMatrix = SoProjectionMatrixElement::get(state);
 
     SoModernIR::fillMaterialFromState(state, cmd.material);
     SoModernIR::fillRenderStateFromState(state, cmd.state);
