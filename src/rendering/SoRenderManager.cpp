@@ -692,6 +692,7 @@ SoRenderManager::renderModern(const SbBool clearwindow,
   params.state = action->getState();
   params.contextId = SoGLCacheContextElement::get(action->getState());
   params.bgCommandCount = PRIVATE(this)->modernBgCommandCount;
+  params.devicePixelRatio = PRIVATE(this)->devicePixelRatio;
 
   backend->render(list, params);
 
@@ -2251,6 +2252,18 @@ SoRenderManager::clearDrawListSelection()
       cmd.selection.selectedElements.clear();
     }
   }
+}
+
+void
+SoRenderManager::setDevicePixelRatio(float dpr)
+{
+  PRIVATE(this)->devicePixelRatio = dpr;
+}
+
+float
+SoRenderManager::getDevicePixelRatio(void) const
+{
+  return PRIVATE(this)->devicePixelRatio;
 }
 
 void

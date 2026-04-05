@@ -4,6 +4,11 @@
 #include "rendering/SoVBO.h"
 #include "CoinTracyConfig.h"
 
+// GL_GEOMETRY_SHADER may not be defined in macOS legacy GL headers
+#ifndef GL_GEOMETRY_SHADER
+#define GL_GEOMETRY_SHADER 0x8DD9
+#endif
+
 // macOS: <OpenGL/gl.h> only provides APPLE-suffixed VAO functions, but
 // Core Profile requires the standard names. Declare them explicitly —
 // they exist in the framework regardless of which header is included.
@@ -211,6 +216,10 @@ SoModernGLBackend::shutdown()
   if (this->shaderProgram) {
     glDeleteProgram(this->shaderProgram);
     this->shaderProgram = 0;
+  }
+  if (this->lineShaderProgram) {
+    glDeleteProgram(this->lineShaderProgram);
+    this->lineShaderProgram = 0;
   }
   this->setInitialized(FALSE);
   this->emitLog("shutdown");
@@ -625,17 +634,51 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
   }
 
+  float dpr = params.devicePixelRatio;
+  if (dpr < 1.0f) dpr = 1.0f;
   if (prim == GL_POINTS || fillMode == 2) {
     float ps = cmd.state.raster.pointSize;
     if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
-    glPointSize(std::max(ps, 1.0f));
+    glPointSize(std::max(ps, 1.0f) * dpr);
     // Point circle discard via gl_PointCoord in shader (mode 1.5)
     glUniform1f(this->uRenderModeLocation, 1.5f);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   }
+  bool useLineShader = false;
   if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
-    glLineWidth(std::max(cmd.state.raster.lineWidth, 1.0f));
+    float lw = std::max(cmd.state.raster.lineWidth, 1.0f) * dpr;
+    if (this->lineShaderProgram && lw > 1.0f) {
+      // Switch to line shader with geometry-based width expansion
+      useLineShader = true;
+      glUseProgram(this->lineShaderProgram);
+      SbMat modelMat2;
+      cmd.modelMatrix.getValue(modelMat2);
+      glUniformMatrix4fv(this->lineUModelLocation, 1, GL_FALSE, &modelMat2[0][0]);
+      if (cmd.pass == SO_RENDERPASS_OVERLAY) {
+        SbMat cmdV, cmdP;
+        cmd.viewMatrix.getValue(cmdV);
+        cmd.projMatrix.getValue(cmdP);
+        glUniformMatrix4fv(this->lineUViewLocation, 1, GL_FALSE, &cmdV[0][0]);
+        glUniformMatrix4fv(this->lineUProjLocation, 1, GL_FALSE, &cmdP[0][0]);
+      } else {
+        glUniformMatrix4fv(this->lineUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+        glUniformMatrix4fv(this->lineUProjLocation, 1, GL_FALSE, &projMat[0][0]);
+      }
+      bool hasVC = (entry.colorVBO != 0);
+      glUniform1f(this->lineUUseVertexColorLocation, hasVC ? 1.0f : 0.0f);
+      glUniform4f(this->lineUColorLocation,
+                  diffuse[0], diffuse[1], diffuse[2], diffuse[3]);
+      SbVec2s vpSz = params.viewport.getViewportSizePixels();
+      glUniform2f(this->lineUVpSizeLocation,
+                  static_cast<float>(vpSz[0]),
+                  static_cast<float>(vpSz[1]));
+      glUniform1f(this->lineULineWidthLocation, lw);
+      glUniform1f(this->lineUStipplePeriodLocation, 0.0f);
+      glUniform3f(this->lineUEmissiveColorLocation, 0.0f, 0.0f, 0.0f);
+    } else {
+      glLineWidth(lw);
+    }
   }
 
   // Line stipple pattern (dashed/dotted lines) — shader-based via u_stipplePeriod.
@@ -674,6 +717,9 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     float objectPeriod = (pixPerUnit > 0.001f) ? pixelPeriod / pixPerUnit : 1.0f;
 
     glUniform1f(this->uStipplePeriodLocation, objectPeriod);
+    if (useLineShader) {
+      glUniform1f(this->lineUStipplePeriodLocation, objectPeriod);
+    }
   }
 
   // Polygon offset: push faces back so coplanar edges render on top
@@ -771,6 +817,9 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
     glPointSize(1.0f);
   }
   if (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1) {
+    if (useLineShader) {
+      glUseProgram(this->shaderProgram);
+    }
     glLineWidth(1.0f);
   }
   if (cmd.state.raster.cullMode != 0) {
@@ -1010,7 +1059,8 @@ SoModernGLBackend::renderOverlayPass(const SoDrawList & drawlist,
 void
 SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
                                        const SbMat & viewMat,
-                                       const SbMat & projMat)
+                                       const SbMat & projMat,
+                                       const SoRenderParams & params)
 {
   const int count = drawlist.getNumCommands();
 
@@ -1022,7 +1072,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
   glUniform1f(this->uRenderModeLocation, 1.0f);
 
   // Helper: draw a sub-range or whole command for selection overlay
-  auto drawElementRange = [](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
+  auto drawElementRange = [&params](const SoRenderCommand & cmd, int elemIdx, GLenum prim) {
     if (cmd.geometry.indexCount > 0 && cmd.geometry.indices) {
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.pick.faceStart.size())) {
         int offset = cmd.pick.faceStart[elemIdx];
@@ -1039,7 +1089,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
       if (elemIdx >= 0 && elemIdx < static_cast<int>(cmd.geometry.vertexCount)) {
         float ps = cmd.state.raster.pointSize;
         if (ps < 1.0f) ps = cmd.state.raster.lineWidth;
-        glPointSize(std::max(ps, MIN_HIGHLIGHT_POINT_SIZE));
+        glPointSize(std::max(ps, MIN_HIGHLIGHT_POINT_SIZE) * params.devicePixelRatio);
         glDrawArrays(prim, elemIdx, 1);
       }
       else {
@@ -1131,7 +1181,7 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
         }
         glUniform1f(this->uUseVertexColorLocation, 0.0f);
         glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 1.0f);
-        glLineWidth(2.0f);
+        glLineWidth(2.0f * params.devicePixelRatio);
         glDrawArrays(GL_LINES, 0, 24);
         glLineWidth(1.0f);
         glBindVertexArray(0);
@@ -1254,7 +1304,7 @@ SoModernGLBackend::render(const SoDrawList & drawlist,
   renderBackgroundPass(drawlist, viewMat, projMat, params);
   renderOpaquePass(drawlist, viewMat, projMat, params);
   renderTransparentPass(drawlist, viewMat, projMat, params);
-  renderSelectionPass(drawlist, viewMat, projMat);
+  renderSelectionPass(drawlist, viewMat, projMat, params);
   renderOverlayPass(drawlist, viewMat, projMat, params);
   endFrame();
   renderIDBufferPass(drawlist, viewMat, projMat, params);
@@ -1482,6 +1532,102 @@ SoModernGLBackend::createShaders()
   this->uRoughnessLocation = glGetUniformLocation(this->shaderProgram, "u_roughness");
   this->texcoordLoc = glGetAttribLocation(this->shaderProgram, "a_texcoord");
   this->lineDistLoc = glGetAttribLocation(this->shaderProgram, "a_lineDistance");
+
+  // Line shader — geometry shader expands lines into screen-space quads
+  // for wide lines on Core Profile where glLineWidth is clamped to 1.0.
+  static const char * lineVertSource =
+    "#version 410 core\n"
+    "layout(location = 0) in vec3 a_position;\n"
+    "layout(location = 2) in vec4 a_color;\n"
+    "layout(location = 4) in float a_lineDistance;\n"
+    "uniform mat4 u_proj;\n"
+    "uniform mat4 u_view;\n"
+    "uniform mat4 u_model;\n"
+    "uniform vec4 u_color;\n"
+    "uniform float u_useVertexColor;\n"
+    "out vec4 vs_color;\n"
+    "out float vs_lineDistance;\n"
+    "void main() {\n"
+    "  gl_Position = u_proj * u_view * u_model * vec4(a_position, 1.0);\n"
+    "  vs_color = (u_useVertexColor > 0.5) ? a_color : u_color;\n"
+    "  vs_lineDistance = a_lineDistance;\n"
+    "}\n";
+
+  static const char * lineGeomSource =
+    "#version 410 core\n"
+    "layout(lines) in;\n"
+    "layout(triangle_strip, max_vertices = 4) out;\n"
+    "uniform vec2 u_vpSize;\n"
+    "uniform float u_lineWidth;\n"
+    "in vec4 vs_color[];\n"
+    "in float vs_lineDistance[];\n"
+    "out vec4 v_color;\n"
+    "out float v_lineDistance;\n"
+    "void main() {\n"
+    "  vec4 p0 = gl_in[0].gl_Position;\n"
+    "  vec4 p1 = gl_in[1].gl_Position;\n"
+    "  vec2 ndc0 = p0.xy / p0.w;\n"
+    "  vec2 ndc1 = p1.xy / p1.w;\n"
+    "  vec2 dir = normalize(ndc1 - ndc0);\n"
+    "  vec2 perp = vec2(-dir.y, dir.x);\n"
+    "  vec2 offset = perp * u_lineWidth / u_vpSize;\n"
+    "  v_color = vs_color[0]; v_lineDistance = vs_lineDistance[0];\n"
+    "  gl_Position = p0 + vec4(offset * p0.w, 0.0, 0.0); EmitVertex();\n"
+    "  gl_Position = p0 - vec4(offset * p0.w, 0.0, 0.0); EmitVertex();\n"
+    "  v_color = vs_color[1]; v_lineDistance = vs_lineDistance[1];\n"
+    "  gl_Position = p1 + vec4(offset * p1.w, 0.0, 0.0); EmitVertex();\n"
+    "  gl_Position = p1 - vec4(offset * p1.w, 0.0, 0.0); EmitVertex();\n"
+    "  EndPrimitive();\n"
+    "}\n";
+
+  static const char * lineFragSource =
+    "#version 410 core\n"
+    "uniform float u_renderMode;\n"
+    "uniform vec3 u_emissiveColor;\n"
+    "uniform float u_stipplePeriod;\n"
+    "in vec4 v_color;\n"
+    "in float v_lineDistance;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "  if (u_stipplePeriod > 0.0) {\n"
+    "    if (mod(v_lineDistance, u_stipplePeriod) > u_stipplePeriod * 0.5) discard;\n"
+    "  }\n"
+    "  fragColor = v_color;\n"
+    "}\n";
+
+  GLuint lvs = coin_compile_shader(GL_VERTEX_SHADER, lineVertSource);
+  GLuint lgs = coin_compile_shader(GL_GEOMETRY_SHADER, lineGeomSource);
+  GLuint lfs = coin_compile_shader(GL_FRAGMENT_SHADER, lineFragSource);
+  if (lvs && lgs && lfs) {
+    GLuint lprog = glCreateProgram();
+    glAttachShader(lprog, lvs);
+    glAttachShader(lprog, lgs);
+    glAttachShader(lprog, lfs);
+    glBindAttribLocation(lprog, 0, "a_position");
+    glBindAttribLocation(lprog, 2, "a_color");
+    glBindAttribLocation(lprog, 4, "a_lineDistance");
+    glLinkProgram(lprog);
+    GLint linkOk = GL_FALSE;
+    glGetProgramiv(lprog, GL_LINK_STATUS, &linkOk);
+    if (linkOk) {
+      this->lineShaderProgram = lprog;
+      this->lineUViewLocation = glGetUniformLocation(lprog, "u_view");
+      this->lineUProjLocation = glGetUniformLocation(lprog, "u_proj");
+      this->lineUModelLocation = glGetUniformLocation(lprog, "u_model");
+      this->lineUColorLocation = glGetUniformLocation(lprog, "u_color");
+      this->lineULineWidthLocation = glGetUniformLocation(lprog, "u_lineWidth");
+      this->lineUVpSizeLocation = glGetUniformLocation(lprog, "u_vpSize");
+      this->lineURenderModeLocation = glGetUniformLocation(lprog, "u_renderMode");
+      this->lineUStipplePeriodLocation = glGetUniformLocation(lprog, "u_stipplePeriod");
+      this->lineUEmissiveColorLocation = glGetUniformLocation(lprog, "u_emissiveColor");
+      this->lineUUseVertexColorLocation = glGetUniformLocation(lprog, "u_useVertexColor");
+    } else {
+      glDeleteProgram(lprog);
+    }
+  }
+  glDeleteShader(lvs);
+  glDeleteShader(lgs);
+  glDeleteShader(lfs);
 
   return TRUE;
 }

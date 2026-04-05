@@ -144,6 +144,11 @@ struct SoRenderParams {
     clears the depth buffer before rendering the main scene.
   */
   int                bgCommandCount;
+  /*!
+    \brief Device pixel ratio for HiDPI scaling (e.g. 2.0 on Retina).
+    Line widths and point sizes are scaled by this factor.
+  */
+  float              devicePixelRatio;
 };
 
 /*!

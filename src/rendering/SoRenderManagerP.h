@@ -148,6 +148,7 @@ public:
   uint32_t cachedSceneGen = 0;         // last traversed scene generation
   uint32_t cachedForegroundGen = 0;    // last traversed foreground generation
   bool hasCameraDependentShapes = false;
+  float devicePixelRatio = 1.0f;
   bool pendingCameraChange = false;  // set by notifyCameraChange(), consumed by sensor
   SbBool interactive = FALSE;
 #ifdef COIN_USE_BACKTRACE

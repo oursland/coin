@@ -161,6 +161,8 @@ public:
 
   void scheduleRedraw(void);
   void setWindowSize(const SbVec2s & newsize);
+  void setDevicePixelRatio(float dpr);
+  float getDevicePixelRatio(void) const;
   const SbVec2s & getWindowSize(void) const;
   void setSize(const SbVec2s & newsize);
   const SbVec2s & getSize(void) const;

@@ -114,7 +114,8 @@ private:
                          const SbMat & viewMat, const SbMat & projMat,
                          const SoRenderParams & params);
   void renderSelectionPass(const SoDrawList & drawlist,
-                           const SbMat & viewMat, const SbMat & projMat);
+                           const SbMat & viewMat, const SbMat & projMat,
+                           const SoRenderParams & params);
   void endFrame();
   void renderIDBufferPass(const SoDrawList & drawlist,
                           const SbMat & viewMat, const SbMat & projMat,
@@ -130,6 +131,18 @@ private:
 
   // Unified shader program (lit + flat + billboard + textured)
   GLuint shaderProgram = 0;
+  // Line shader program (with geometry shader for screen-space width)
+  GLuint lineShaderProgram = 0;
+  GLint  lineUViewLocation = -1;
+  GLint  lineUProjLocation = -1;
+  GLint  lineUModelLocation = -1;
+  GLint  lineUColorLocation = -1;
+  GLint  lineULineWidthLocation = -1;
+  GLint  lineUVpSizeLocation = -1;
+  GLint  lineURenderModeLocation = -1;
+  GLint  lineUStipplePeriodLocation = -1;
+  GLint  lineUEmissiveColorLocation = -1;
+  GLint  lineUUseVertexColorLocation = -1;
   GLint  uViewLocation = -1;
   GLint  uProjLocation = -1;
   GLint  uModelLocation = -1;
