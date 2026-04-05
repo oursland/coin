@@ -607,6 +607,7 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
                     || (cmd.material.featureFlags & SO_FEAT_BASE_COLOR));
   glUniform1f(this->uRenderModeLocation, flatColor ? 1.0f : 0.0f);
 
+
   // Per-command emissive color (added to lighting result)
   const SbVec4f & ec = cmd.material.emissive;
   glUniform3f(this->uEmissiveColorLocation, ec[0], ec[1], ec[2]);
@@ -645,7 +646,21 @@ SoModernGLBackend::drawCommand(const SoRenderCommand & cmd,
                  && (prim == GL_LINES || prim == GL_LINE_STRIP || fillMode == 1);
   if (useStipple) {
     int factor = std::max(static_cast<int>(cmd.state.raster.linePatternScale), 1);
-    float pixelPeriod = static_cast<float>(factor * 16);
+    // Find the fundamental repeat period from the pattern. GL_LINE_STIPPLE
+    // uses a 16-bit pattern, but many patterns repeat at a shorter period
+    // (e.g. 0x0f0f repeats every 8 bits: 00001111).
+    int repeatLen = 16;
+    for (int len = 1; len <= 8; len++) {
+      if (16 % len != 0) continue;
+      uint16_t mask = (1u << len) - 1;
+      uint16_t first = pattern & mask;
+      bool repeats = true;
+      for (int off = len; off < 16; off += len) {
+        if (((pattern >> off) & mask) != first) { repeats = false; break; }
+      }
+      if (repeats) { repeatLen = len; break; }
+    }
+    float pixelPeriod = static_cast<float>(factor * repeatLen);
 
     // Project origin and unit X through MVP to get screen scale
     SbMatrix mvp = cmd.modelMatrix;
