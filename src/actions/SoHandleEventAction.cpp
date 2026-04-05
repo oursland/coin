@@ -364,25 +364,15 @@ SoHandleEventAction::getPickedPoint(void)
   // Try GPU pick for hover/preselection when modern renderer is active.
   // Skip GPU pick for mouse button presses — draggers need deep paths
   // from ray pick (GPU pick only returns identity-level paths).
-  // Use GPU pick for hover/preselection. Skip for mouse button events
-  // so draggers get deep paths from ray pick for interaction.
-  bool isMouseButton = PRIVATE(this)->event &&
-      PRIVATE(this)->event->isOfType(SoMouseButtonEvent::getClassTypeId());
-  if (PRIVATE(this)->renderManager &&
-      PRIVATE(this)->renderManager->isModernRenderEnabled() &&
-      PRIVATE(this)->event && !isMouseButton) {
-    SbVec2s pos = PRIVATE(this)->event->getPosition();
-    float radius = this->getPickRadius();
-    // Clear WITHOUT deleting — stale SoPickedPoints may crash on delete
-    static_cast<SbPList &>(PRIVATE(this)->gpuPickedPointList).truncate(0);
-    SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
-      pos[0], pos[1], static_cast<int>(radius));
-    if (pp) {
-      PRIVATE(this)->gpuPickedPointList.append(pp);  // list takes ownership
-      return pp;
-    }
-    // GPU pick returned no hit — fall through to ray pick
-  }
+  // Skip GPU pick for getPickedPoint entirely. The modern renderer's
+  // hover preselection uses gpuPick + resolveGpuPickIdentity directly
+  // in SoFCUnifiedSelection, bypassing this method. Mouse button events
+  // need ray pick for deep paths (dragger interaction). Returning NULL
+  // here falls through to the ray pick below, which always works.
+  //
+  // Previously this created SoPickedPoint objects from GPU pick results,
+  // but their SoPath copies contained stale node references after scene
+  // rebuilds, causing memory leaks (couldn't delete) and potential crashes.
 
   // Legacy ray pick fallback
   SoRayPickAction * ra = PRIVATE(this)->getPickAction();
@@ -400,24 +390,8 @@ const SoPickedPointList &
 SoHandleEventAction::getPickedPointList(void)
 {
   // Try GPU pick first when modern renderer is active
-  if (PRIVATE(this)->renderManager &&
-      PRIVATE(this)->renderManager->isModernRenderEnabled() &&
-      PRIVATE(this)->event) {
-    // Clear old GPU picks WITHOUT deleting — the SoPickedPoints from
-    // stored command paths may have stale node pointers that crash
-    // during SoPath::truncate in the destructor. Leak them instead.
-    static_cast<SbPList &>(PRIVATE(this)->gpuPickedPointList).truncate(0);
-
-    SbVec2s pos = PRIVATE(this)->event->getPosition();
-    float radius = this->getPickRadius();
-    SoPickedPoint * pp = PRIVATE(this)->renderManager->assemblePickedPoint(
-      pos[0], pos[1], static_cast<int>(radius));
-    if (pp) {
-      PRIVATE(this)->gpuPickedPointList.append(pp);
-      return PRIVATE(this)->gpuPickedPointList;
-    }
-    // GPU pick returned no hit — fall through to legacy ray pick
-  }
+  // No GPU pick path for getPickedPointList — same reasoning as
+  // getPickedPoint above. Fall through to ray pick.
 
   SoRayPickAction * ra = PRIVATE(this)->getPickAction();
   if (!PRIVATE(this)->pickvalid || !PRIVATE(this)->didpickall) {

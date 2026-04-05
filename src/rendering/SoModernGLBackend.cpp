@@ -1127,18 +1127,54 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
       // Use GL_ALWAYS so point highlights render on top of billboard markers
       glDepthFunc(GL_ALWAYS);
     }
+    if (prim == GL_LINES || prim == GL_LINE_STRIP) {
+      // Render edge highlight at same width as original edge, opaque,
+      // using GL_ALWAYS to overwrite the black edge with highlight color.
+      // This matches the legacy renderer which replaces the edge color.
+      glDepthFunc(GL_ALWAYS);
+      float edgeWidth = std::max(cmd.state.raster.lineWidth, 1.0f) * params.devicePixelRatio;
+      if (this->lineShaderProgram && edgeWidth > 1.0f) {
+        glUseProgram(this->lineShaderProgram);
+        glUniformMatrix4fv(this->lineUModelLocation, 1, GL_FALSE, &modelMat[0][0]);
+        glUniformMatrix4fv(this->lineUViewLocation, 1, GL_FALSE, &viewMat[0][0]);
+        glUniformMatrix4fv(this->lineUProjLocation, 1, GL_FALSE, &projMat[0][0]);
+        SbVec2s vpSz = params.viewport.getViewportSizePixels();
+        glUniform2f(this->lineUVpSizeLocation,
+                    static_cast<float>(vpSz[0]), static_cast<float>(vpSz[1]));
+        glUniform1f(this->lineULineWidthLocation, edgeWidth);
+        glUniform1f(this->lineUStipplePeriodLocation, 0.0f);
+        glUniform1f(this->lineUUseVertexColorLocation, 0.0f);
+      }
+    }
 
     // Bind cached VAO (has pos + norm + idx already set up).
     // For flat overlay, normals are ignored by the shader (u_renderMode == 1).
     glBindVertexArray(entry.vao);
 
+    // Helper: set color on whichever shader is active (main or line).
+    // For edges, use opaque color (replaces the edge, not overlays).
+    bool isEdge = (prim == GL_LINES || prim == GL_LINE_STRIP);
+    bool lineShaderActive = isEdge && this->lineShaderProgram;
+    auto setSelColor = [&](float r, float g, float b, float a) {
+      float alpha = isEdge ? 1.0f : a;  // opaque for edges
+      if (lineShaderActive) {
+        glUniform4f(this->lineUColorLocation, r, g, b, alpha);
+      }
+      glUniform4f(this->uColorLocation, r, g, b, alpha);
+    };
+
     if (hasSelection) {
       const SbVec4f & sc = cmd.selection.selectionColor;
-      glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], SELECTION_ALPHA);
+      setSelColor(sc[0], sc[1], sc[2], SELECTION_ALPHA);
 
-      // Render wireframe bounding box for selected triangle geometry.
-      // This provides the BoundBox selection visualization.
-      if (prim == GL_TRIANGLES
+      // Render wireframe bounding box only for whole-body selection (element -2,
+      // from tree-view selection). Per-face click selection uses the normal
+      // face highlight path below.
+      bool isWholeBody = false;
+      for (int elem : cmd.selection.selectedElements) {
+        if (elem == -2) { isWholeBody = true; break; }
+      }
+      if (isWholeBody && prim == GL_TRIANGLES
           && cmd.geometry.positions && cmd.geometry.vertexCount >= 3) {
         // Compute AABB from vertex positions
         GLsizei stride = static_cast<GLsizei>(
@@ -1199,13 +1235,20 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
 
     if (hasHighlight) {
       const SbVec4f & hc = cmd.selection.highlightColor;
-      glUniform4f(this->uColorLocation, hc[0], hc[1], hc[2], HIGHLIGHT_ALPHA);
+      setSelColor(hc[0], hc[1], hc[2], HIGHLIGHT_ALPHA);
       drawElementRange(cmd, hlElem, prim);
     }
 
     if (prim == GL_POINTS) {
       glUniform1f(this->uRenderModeLocation, 1.0f);  // restore to flat
       glDepthFunc(GL_LEQUAL);
+    }
+    if (prim == GL_LINES || prim == GL_LINE_STRIP) {
+      glDepthFunc(GL_LEQUAL);
+      if (this->lineShaderProgram) {
+        glUseProgram(this->shaderProgram);
+        glUniform1f(this->uRenderModeLocation, 1.0f);
+      }
     }
   }
 

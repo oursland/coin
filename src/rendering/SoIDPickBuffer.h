@@ -157,6 +157,14 @@ private:
   int cachedPosLoc = -1;
   int cachedIdColorLoc = -1;
 
+  // Line shader program (geometry shader for wide ID lines on Core Profile)
+  uint32_t lineShaderProgram = 0;
+  int lineUView = -1;
+  int lineUProj = -1;
+  int lineUModel = -1;
+  int lineUVpSize = -1;
+  int lineULineWidth = -1;
+
   // Pick dimensions
   float pickLineWidth = 7.0f;
   float pickPointSize = 7.0f;

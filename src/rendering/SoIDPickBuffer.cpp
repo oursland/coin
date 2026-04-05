@@ -58,6 +58,42 @@ void main() {
 }
 )";
 
+// Geometry shader for wide ID lines on Core Profile (glLineWidth clamped to 1)
+static const char * idLineGeomShader = R"(
+#version 410 core
+layout(lines) in;
+layout(triangle_strip, max_vertices = 4) out;
+uniform vec2 uVpSize;
+uniform float uLineWidth;
+in vec4 vIdColor[];
+out vec4 gIdColor;
+void main() {
+    vec4 p0 = gl_in[0].gl_Position;
+    vec4 p1 = gl_in[1].gl_Position;
+    vec2 ndc0 = p0.xy / p0.w;
+    vec2 ndc1 = p1.xy / p1.w;
+    vec2 dir = normalize(ndc1 - ndc0);
+    vec2 perp = vec2(-dir.y, dir.x);
+    vec2 offset = perp * uLineWidth / uVpSize;
+    gIdColor = vIdColor[0];
+    gl_Position = p0 + vec4(offset * p0.w, 0.0, 0.0); EmitVertex();
+    gl_Position = p0 - vec4(offset * p0.w, 0.0, 0.0); EmitVertex();
+    gIdColor = vIdColor[1];
+    gl_Position = p1 + vec4(offset * p1.w, 0.0, 0.0); EmitVertex();
+    gl_Position = p1 - vec4(offset * p1.w, 0.0, 0.0); EmitVertex();
+    EndPrimitive();
+}
+)";
+
+static const char * idLineFragShader = R"(
+#version 410 core
+in vec4 gIdColor;
+out vec4 fragColor;
+void main() {
+    fragColor = gIdColor;
+}
+)";
+
 // -----------------------------------------------------------------------
 // Encode / Decode
 // -----------------------------------------------------------------------
@@ -179,6 +215,38 @@ SoIDPickBuffer::initialize()
   uIdModel = glGetUniformLocation(shaderProgram, "uModel");
   cachedPosLoc = glGetAttribLocation(shaderProgram, "aPos");
   cachedIdColorLoc = glGetAttribLocation(shaderProgram, "aIdColor");
+
+  // Line shader for wide ID edges on Core Profile (glLineWidth clamped to 1)
+#ifndef GL_GEOMETRY_SHADER
+#define GL_GEOMETRY_SHADER 0x8DD9
+#endif
+  GLuint lvs2 = compileShader(GL_VERTEX_SHADER, idVertexShader);
+  GLuint lgs2 = compileShader(GL_GEOMETRY_SHADER, idLineGeomShader);
+  GLuint lfs2 = compileShader(GL_FRAGMENT_SHADER, idLineFragShader);
+  if (lvs2 && lgs2 && lfs2) {
+    GLuint lprog = glCreateProgram();
+    glAttachShader(lprog, lvs2);
+    glAttachShader(lprog, lgs2);
+    glAttachShader(lprog, lfs2);
+    glBindAttribLocation(lprog, 0, "aPos");
+    glBindAttribLocation(lprog, 2, "aIdColor");
+    glLinkProgram(lprog);
+    GLint linkOk = GL_FALSE;
+    glGetProgramiv(lprog, GL_LINK_STATUS, &linkOk);
+    if (linkOk) {
+      lineShaderProgram = lprog;
+      lineUView = glGetUniformLocation(lprog, "uView");
+      lineUProj = glGetUniformLocation(lprog, "uProj");
+      lineUModel = glGetUniformLocation(lprog, "uModel");
+      lineUVpSize = glGetUniformLocation(lprog, "uVpSize");
+      lineULineWidth = glGetUniformLocation(lprog, "uLineWidth");
+    } else {
+      glDeleteProgram(lprog);
+    }
+  }
+  glDeleteShader(lvs2);
+  glDeleteShader(lgs2);
+  glDeleteShader(lfs2);
 
   shaderInitialized = TRUE;
   return TRUE;
@@ -533,14 +601,31 @@ SoIDPickBuffer::renderIdPass(const float * viewMatrix, const float * projMatrix,
   // face depth buffer stays intact for the vertex pass.
   glDepthFunc(GL_LEQUAL);
   glDepthMask(GL_FALSE);
+  // Use line geometry shader for wide ID edges on Core Profile
+  bool useLineShader = (lineShaderProgram != 0 && pickLineWidth > 1.0f);
+  if (useLineShader) {
+    glUseProgram(lineShaderProgram);
+    glUniformMatrix4fv(lineUView, 1, GL_FALSE, viewMatrix);
+    glUniformMatrix4fv(lineUProj, 1, GL_FALSE, projMatrix);
+    glUniform2f(lineUVpSize, static_cast<float>(fbWidth), static_cast<float>(fbHeight));
+    glUniform1f(lineULineWidth, pickLineWidth);
+  }
   for (int ci = 0; ci < numCmds; ci++) {
     const SoRenderCommand & cmd = drawlist.getCommand(ci);
     if (cmd.pass == SO_RENDERPASS_OVERLAY) continue;
     if (cmd.geometry.topology != SO_TOPOLOGY_LINES &&
         cmd.geometry.topology != SO_TOPOLOGY_LINE_STRIP) continue;
     if (cmd.material.flags & SO_MAT_HAS_TEXTURE) continue;
+    if (useLineShader) {
+      SbMat modelMat;
+      cmd.modelMatrix.getValue(modelMat);
+      glUniformMatrix4fv(lineUModel, 1, GL_FALSE, &modelMat[0][0]);
+    }
     glLineWidth(std::max(cmd.state.raster.lineWidth, pickLineWidth));
     drawIdCmd(cmd, ci, GL_LINES);
+  }
+  if (useLineShader) {
+    glUseProgram(shaderProgram);
   }
   glDepthMask(GL_TRUE);
   glDepthFunc(GL_LESS);
