@@ -51,6 +51,7 @@
 
 #include <Inventor/SbViewportRegion.h>
 #include <Inventor/events/SoEvent.h>
+#include <Inventor/events/SoMouseButtonEvent.h>
 #include <Inventor/elements/SoSwitchElement.h>
 #include <Inventor/elements/SoViewVolumeElement.h>
 #include <Inventor/elements/SoViewportRegionElement.h>
@@ -360,10 +361,16 @@ SoHandleEventAction::setRenderManager(SoRenderManager * manager)
 const SoPickedPoint *
 SoHandleEventAction::getPickedPoint(void)
 {
-  // Try GPU pick first when modern renderer is active
+  // Try GPU pick for hover/preselection when modern renderer is active.
+  // Skip GPU pick for mouse button presses — draggers need deep paths
+  // from ray pick (GPU pick only returns identity-level paths).
+  // Use GPU pick for hover/preselection. Skip for mouse button events
+  // so draggers get deep paths from ray pick for interaction.
+  bool isMouseButton = PRIVATE(this)->event &&
+      PRIVATE(this)->event->isOfType(SoMouseButtonEvent::getClassTypeId());
   if (PRIVATE(this)->renderManager &&
       PRIVATE(this)->renderManager->isModernRenderEnabled() &&
-      PRIVATE(this)->event) {
+      PRIVATE(this)->event && !isMouseButton) {
     SbVec2s pos = PRIVATE(this)->event->getPosition();
     float radius = this->getPickRadius();
     // Clear WITHOUT deleting — stale SoPickedPoints may crash on delete

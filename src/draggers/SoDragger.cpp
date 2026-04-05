@@ -1717,7 +1717,12 @@ SoDragger::handleEvent(SoHandleEventAction * action)
       PRIVATE(this)->pickedpath->ref();
 
       PRIVATE(this)->startlocaterpos = event->getPosition();
-      PRIVATE(this)->isgrabbing = FALSE;
+      // Set grabber immediately on activation so that parent nodes
+      // (e.g. SoFCUnifiedSelection) forward subsequent motion events
+      // to this dragger instead of consuming them for preselection.
+      PRIVATE(this)->eventaction = action;
+      this->grabEventsSetup();
+      PRIVATE(this)->isgrabbing = TRUE;
       this->saveStartParameters();
       PRIVATE(this)->startCB.invokeCallbacks(this);
     }
