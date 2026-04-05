@@ -47,27 +47,27 @@ enum SoPrimitiveTopology : uint8_t {
   are free to copy the data into GPU buffers if needed.
 */
 struct SoGeometryDesc {
-  SoPrimitiveTopology topology;
-  uint32_t            vertexCount;
-  uint32_t            normalCount;   //!< Number of normals (may be < vertexCount for BRep shapes).
-  uint32_t            indexCount;
+  SoPrimitiveTopology topology = SO_TOPOLOGY_TRIANGLES;
+  uint32_t            vertexCount = 0;
+  uint32_t            normalCount = 0;
+  uint32_t            indexCount = 0;
 
-  const float *       positions;
-  const float *       normals;
-  const float *       texcoords;
-  const float *       colors;
-  const uint32_t *    indices;
+  const float *       positions = nullptr;
+  const float *       normals = nullptr;
+  const float *       texcoords = nullptr;
+  const float *       colors = nullptr;
+  const uint32_t *    indices = nullptr;
 
-  uint32_t            vertexStride;   //!< Bytes between vertices in the positions/normals arrays.
-  uint32_t            texcoordStride; //!< Bytes between texture coordinates; 0 = tightly packed.
+  uint32_t            vertexStride = 0;
+  uint32_t            texcoordStride = 0;
 
   struct CacheHandle {
-    uint32_t contextId;
-    SoVBO * vertexVbo;
-    SoVBO * indexVbo;
-    SoVAO * vao;
-    const SoVertexLayout * vertexLayout;
-  } cache;
+    uint32_t contextId = 0;
+    SoVBO * vertexVbo = nullptr;
+    SoVBO * indexVbo = nullptr;
+    SoVAO * vao = nullptr;
+    const SoVertexLayout * vertexLayout = nullptr;
+  } cache = {};
 };
 
 // --- Material flags (SoMaterialData::flags) ---
@@ -98,24 +98,24 @@ struct SoTextureData {
 };
 
 struct SoMaterialData {
-  SbVec4f  diffuse;
-  SbVec4f  ambient;
-  SbVec4f  specular;
-  SbVec4f  emissive;
-  float    shininess;
-  float    opacity;
+  SbVec4f  diffuse = {0.8f, 0.8f, 0.8f, 1.0f};
+  SbVec4f  ambient = {0.2f, 0.2f, 0.2f, 1.0f};
+  SbVec4f  specular = {0.0f, 0.0f, 0.0f, 1.0f};
+  SbVec4f  emissive = {0.0f, 0.0f, 0.0f, 1.0f};
+  float    shininess = 0.2f;
+  float    opacity = 1.0f;
 
   SoTextureData texture;  //!< Embedded texture (from SoImage, SoTexture2)
 
-  void *   diffuseTexture;
-  void *   normalTexture;
-  void *   emissiveTexture;
+  void *   diffuseTexture = nullptr;
+  void *   normalTexture = nullptr;
+  void *   emissiveTexture = nullptr;
 
-  float    metalness;    //!< PBR metalness (0.0 = dielectric, 1.0 = metal)
-  float    roughness;    //!< PBR roughness (0.0 = mirror, 1.0 = fully rough)
+  float    metalness = 0.0f;
+  float    roughness = 0.5f;
 
-  uint32_t flags;        //!< Material feature bits (vertex colors, two-sided, etc.)
-  uint32_t featureFlags; //!< Mirrors shader feature selection; reserved for future use.
+  uint32_t flags = 0;
+  uint32_t featureFlags = 0;
 };
 
 /*!
@@ -123,9 +123,9 @@ struct SoMaterialData {
   \brief Depth-test configuration for a draw call.
 */
 struct SoDepthState {
-  SbBool  enabled;
-  SbBool  writeEnabled;
-  uint8_t func; //!< Comparison function (GL-style enum value).
+  SbBool  enabled = TRUE;
+  SbBool  writeEnabled = TRUE;
+  uint8_t func = 0; //!< Comparison function (GL-style enum value).
 };
 
 /*!
@@ -133,10 +133,10 @@ struct SoDepthState {
   \brief Blending configuration (GL-style enums encoded as uint8_t).
 */
 struct SoBlendState {
-  SbBool  enabled;
-  uint8_t srcFactor;
-  uint8_t dstFactor;
-  uint8_t op;
+  SbBool  enabled = FALSE;
+  uint8_t srcFactor = 0;
+  uint8_t dstFactor = 0;
+  uint8_t op = 0;
 };
 
 /*!
@@ -144,15 +144,15 @@ struct SoBlendState {
   \brief Rasterizer properties (fill mode, culling, polygon offset).
 */
 struct SoRasterState {
-  uint8_t fillMode;         // 0=filled, 1=lines (wireframe), 2=points
-  uint8_t cullMode;
-  SbBool  scissorEnabled;
-  float   lineWidth;
-  float   pointSize;
-  uint16_t linePattern;     // GL line stipple pattern (0xFFFF = solid)
-  int16_t  linePatternScale; // GL line stipple repeat factor
-  float   polygonOffsetFactor;
-  float   polygonOffsetUnits;
+  uint8_t fillMode = 0;         // 0=filled, 1=lines (wireframe), 2=points
+  uint8_t cullMode = 0;
+  SbBool  scissorEnabled = FALSE;
+  float   lineWidth = 1.0f;
+  float   pointSize = 1.0f;
+  uint16_t linePattern = 0xFFFF; // GL line stipple pattern (0xFFFF = solid)
+  int16_t  linePatternScale = 1; // GL line stipple repeat factor
+  float   polygonOffsetFactor = 0.0f;
+  float   polygonOffsetUnits = 0.0f;
 };
 
 /*!
@@ -163,8 +163,8 @@ struct SoRenderState {
   SoDepthState depth;
   SoBlendState blend;
   SoRasterState raster;
-  uint32_t opaqueKey;
-  uint32_t translucentKey;
+  uint32_t opaqueKey = 0;
+  uint32_t translucentKey = 0;
 };
 
 /*!
@@ -226,20 +226,20 @@ struct SoRenderCommand {
   SoMaterialData   material;
   SoRenderState    state;
 
-  SbMatrix         modelMatrix;
+  SbMatrix         modelMatrix;  // default-constructed to identity
   SbMatrix         viewMatrix;
   SbMatrix         projMatrix;
 
-  SoRenderPassType pass;
-  SoLightingHandle lightingHandle;
-  SoPipelineKey    pipelineKey;
-  SoGLShaderProgram * shaderProgram;
+  SoRenderPassType pass = SO_RENDERPASS_OPAQUE;
+  SoLightingHandle lightingHandle = 0;
+  SoPipelineKey    pipelineKey = 0;
+  SoGLShaderProgram * shaderProgram = nullptr;
 
   SoPickData       pick;       //!< GPU pick identification
   SoSelectionData  selection;  //!< Mutable highlight/selection state
 
-  uint64_t         sortKey;
-  void *           userData;
+  uint64_t         sortKey = 0;
+  void *           userData = nullptr;
 };
 
 /*!
