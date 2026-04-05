@@ -1070,8 +1070,65 @@ SoModernGLBackend::renderSelectionPass(const SoDrawList & drawlist,
     if (hasSelection) {
       const SbVec4f & sc = cmd.selection.selectionColor;
       glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], SELECTION_ALPHA);
-      for (int elem : cmd.selection.selectedElements) {
-        drawElementRange(cmd, elem, prim);
+
+      // Render wireframe bounding box for selected triangle geometry.
+      // This provides the BoundBox selection visualization.
+      if (prim == GL_TRIANGLES
+          && cmd.geometry.positions && cmd.geometry.vertexCount >= 3) {
+        // Compute AABB from vertex positions
+        GLsizei stride = static_cast<GLsizei>(
+          cmd.geometry.vertexStride ? cmd.geometry.vertexStride : sizeof(float) * 3);
+        int floatStride = stride / static_cast<int>(sizeof(float));
+        const float * pos = cmd.geometry.positions;
+        float minX = pos[0], minY = pos[1], minZ = pos[2];
+        float maxX = minX, maxY = minY, maxZ = minZ;
+        for (uint32_t vi = 1; vi < cmd.geometry.vertexCount; vi++) {
+          const float * p = pos + vi * floatStride;
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+          if (p[2] < minZ) minZ = p[2]; if (p[2] > maxZ) maxZ = p[2];
+        }
+        // 24 vertices for 12 edges of a wireframe box (GL_LINES)
+        float bboxVerts[24 * 3] = {
+          minX,minY,minZ, maxX,minY,minZ,  maxX,minY,minZ, maxX,maxY,minZ,
+          maxX,maxY,minZ, minX,maxY,minZ,  minX,maxY,minZ, minX,minY,minZ,
+          minX,minY,maxZ, maxX,minY,maxZ,  maxX,minY,maxZ, maxX,maxY,maxZ,
+          maxX,maxY,maxZ, minX,maxY,maxZ,  minX,maxY,maxZ, minX,minY,maxZ,
+          minX,minY,minZ, minX,minY,maxZ,  maxX,minY,minZ, maxX,minY,maxZ,
+          maxX,maxY,minZ, maxX,maxY,maxZ,  minX,maxY,minZ, minX,maxY,maxZ,
+        };
+        GLuint bboxVBO;
+        glGenBuffers(1, &bboxVBO);
+        glBindBuffer(GL_ARRAY_BUFFER, bboxVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(bboxVerts), bboxVerts, GL_STREAM_DRAW);
+
+        GLuint bboxVAO;
+        glGenVertexArrays(1, &bboxVAO);
+        glBindVertexArray(bboxVAO);
+        glEnableVertexAttribArray(this->posLoc);
+        glVertexAttribPointer(this->posLoc, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+        if (this->normLoc >= 0) {
+          glDisableVertexAttribArray(this->normLoc);
+          glVertexAttrib3f(this->normLoc, 0.0f, 0.0f, 1.0f);
+        }
+        if (this->colorLoc >= 0) {
+          glDisableVertexAttribArray(this->colorLoc);
+        }
+        glUniform1f(this->uUseVertexColorLocation, 0.0f);
+        glUniform4f(this->uColorLocation, sc[0], sc[1], sc[2], 1.0f);
+        glLineWidth(2.0f);
+        glDrawArrays(GL_LINES, 0, 24);
+        glLineWidth(1.0f);
+        glBindVertexArray(0);
+        glDeleteVertexArrays(1, &bboxVAO);
+        glDeleteBuffers(1, &bboxVBO);
+        // Rebind the original VAO for subsequent draws
+        glBindVertexArray(entry.vao);
+      }
+      else {
+        for (int elem : cmd.selection.selectedElements) {
+          drawElementRange(cmd, elem, prim);
+        }
       }
     }
 

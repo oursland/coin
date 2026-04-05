@@ -260,6 +260,12 @@ public:
   bool setDrawListSelection(uint32_t lutIndex, const SbColor4f & color,
                             SbBool append = TRUE);
 
+  /// Select all commands whose pickIdentity starts with the given prefix.
+  /// Used for tree-view selection (whole object, no GPU pick).
+  bool setDrawListSelectionByIdentity(const char * identityPrefix,
+                                      const SbColor4f & color,
+                                      SbBool append = TRUE);
+
   /// Clear all selection state in the draw list.
   void clearDrawListSelection();
 

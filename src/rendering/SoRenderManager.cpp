@@ -62,6 +62,7 @@
 #include <Inventor/elements/SoGLCacheContextElement.h>
 
 #include <algorithm>
+#include <cstring>
 //FIXME:Need this include early, since including it via SoRenderManagerP.h will cause problems for cygwin. Don't understand the root cause BFG 20090629
 #include <vector>
 
@@ -2205,6 +2206,36 @@ SoRenderManager::setDrawListSelection(uint32_t lutIndex, const SbColor4f & color
   cmd.selection.selectionColor.setValue(color[0], color[1], color[2], color[3]);
   cmd.selection.selectedElements.push_back(entry.elementIndex);
   return true;
+}
+
+bool
+SoRenderManager::setDrawListSelectionByIdentity(const char * identityPrefix,
+                                                const SbColor4f & color,
+                                                SbBool append)
+{
+  SoModernRenderAction * action = PRIVATE(this)->modernAction;
+  if (!action || !identityPrefix) return false;
+  SoDrawList & drawlist = action->getMutableDrawList();
+  int numCmds = drawlist.getNumCommands();
+
+  if (!append) {
+    for (int i = 0; i < numCmds; i++) {
+      drawlist.getCommand(i).selection.selectedElements.clear();
+    }
+  }
+
+  size_t prefixLen = std::strlen(identityPrefix);
+  bool found = false;
+  for (int i = 0; i < numCmds; i++) {
+    SoRenderCommand & cmd = drawlist.getCommand(i);
+    if (cmd.pick.pickIdentity.compare(0, prefixLen, identityPrefix) == 0) {
+      cmd.selection.selectionColor.setValue(color[0], color[1], color[2], color[3]);
+      // Select whole body (-2) for this command
+      cmd.selection.selectedElements.push_back(-2);
+      found = true;
+    }
+  }
+  return found;
 }
 
 void
