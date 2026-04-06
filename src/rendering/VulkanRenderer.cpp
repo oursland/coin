@@ -12,25 +12,43 @@ VulkanRenderer::~VulkanRenderer() {
     cleanup();
 }
 
-void VulkanRenderer::init(const std::string& vertShaderPath, const std::string& fragShaderPath) {
-    createRenderPass();
-    createHeadlessFramebuffer();
+void VulkanRenderer::init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath) {
+    targetFormat = colorFormat;
+    renderExtent = extent;
+    createRenderPass(colorFormat);
     createDescriptorSetLayout();
     createGraphicsPipeline(vertShaderPath, fragShaderPath);
     allocateDescriptorSet();
+}
+
+void VulkanRenderer::createFramebuffers(const std::vector<VkImageView>& imageViews) {
+    swapchainFramebuffers.resize(imageViews.size());
+    for (size_t i = 0; i < imageViews.size(); i++) {
+        VkImageView attachments[] = { imageViews[i] };
+        
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = renderExtent.width;
+        framebufferInfo.height = renderExtent.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(backend->getDevice(), &framebufferInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create framebuffer!");
+        }
+    }
 }
 
 void VulkanRenderer::cleanup() {
     VkDevice device = backend->getDevice();
     
     if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-    
-    if (headlessFramebuffer) vkDestroyFramebuffer(device, headlessFramebuffer, nullptr);
-    if (colorImageView) vkDestroyImageView(device, colorImageView, nullptr);
-    if (colorImage) {
-        vkDestroyImage(device, colorImage, nullptr);
-        vkFreeMemory(device, colorImageMemory, nullptr);
+    for (auto framebuffer : swapchainFramebuffers) {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
+    swapchainFramebuffers.clear();
 
     if (graphicsPipeline) vkDestroyPipeline(device, graphicsPipeline, nullptr);
     if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -38,16 +56,16 @@ void VulkanRenderer::cleanup() {
     if (renderPass) vkDestroyRenderPass(device, renderPass, nullptr);
 }
 
-void VulkanRenderer::createRenderPass() {
+void VulkanRenderer::createRenderPass(VkFormat colorFormat) {
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = VK_FORMAT_B8G8R8A8_UNORM;
+    colorAttachment.format = colorFormat;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
@@ -70,67 +88,7 @@ void VulkanRenderer::createRenderPass() {
     }
 }
 
-void VulkanRenderer::createHeadlessFramebuffer() {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = HEADLESS_WIDTH;
-    imageInfo.extent.height = HEADLESS_HEIGHT;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(backend->getDevice(), &imageInfo, nullptr, &colorImage) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create image!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(backend->getDevice(), colorImage, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = backend->findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(backend->getDevice(), &allocInfo, nullptr, &colorImageMemory) != VK_SUCCESS) {
-        throw std::runtime_error("failed to allocate image memory!");
-    }
-    vkBindImageMemory(backend->getDevice(), colorImage, colorImageMemory, 0);
-
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = colorImage;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    if (vkCreateImageView(backend->getDevice(), &viewInfo, nullptr, &colorImageView) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create image view!");
-    }
-
-    VkFramebufferCreateInfo framebufferInfo{};
-    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebufferInfo.renderPass = renderPass;
-    framebufferInfo.attachmentCount = 1;
-    framebufferInfo.pAttachments = &colorImageView;
-    framebufferInfo.width = HEADLESS_WIDTH;
-    framebufferInfo.height = HEADLESS_HEIGHT;
-    framebufferInfo.layers = 1;
-
-    if (vkCreateFramebuffer(backend->getDevice(), &framebufferInfo, nullptr, &headlessFramebuffer) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create framebuffer!");
-    }
-}
 
 void VulkanRenderer::createDescriptorSetLayout() {
     VkDescriptorSetLayoutBinding transformBinding{};
@@ -225,14 +183,14 @@ void VulkanRenderer::createGraphicsPipeline(const std::string& vertPath, const s
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = (float)HEADLESS_WIDTH;
-    viewport.height = (float)HEADLESS_HEIGHT;
+    viewport.width = (float)renderExtent.width;
+    viewport.height = (float)renderExtent.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = {HEADLESS_WIDTH, HEADLESS_HEIGHT};
+    scissor.extent = renderExtent;
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -359,15 +317,15 @@ void VulkanRenderer::allocateDescriptorSet() {
     vkUpdateDescriptorSets(backend->getDevice(), 2, descriptorWrites, 0, nullptr);
 }
 
-void VulkanRenderer::bindAndDrawHeadless(VkCommandBuffer cmdBuffer, uint32_t maxDrawCount) {
+void VulkanRenderer::bindAndDraw(VkCommandBuffer cmdBuffer, uint32_t framebufferIndex, uint32_t maxDrawCount) {
     VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
     
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = headlessFramebuffer;
+    renderPassInfo.framebuffer = swapchainFramebuffers[framebufferIndex];
     renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = {HEADLESS_WIDTH, HEADLESS_HEIGHT};
+    renderPassInfo.renderArea.extent = renderExtent;
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues = &clearColor;
 

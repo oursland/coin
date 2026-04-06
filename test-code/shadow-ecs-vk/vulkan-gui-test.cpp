@@ -1,6 +1,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <Inventor/ModernVulkanBackend.h>
+#include <Inventor/VulkanRenderer.h>
+#include <Inventor/VulkanStateManager.h>
 #include <iostream>
 
 const uint32_t WIDTH = 1280;
@@ -30,22 +32,29 @@ int main() {
     std::cout << "Initializing Vulkan Device..." << std::endl;
     backend.initDevice(surface);
 
-    std::cout << "Successfully created window and bound Vulkan Device to surface!" << std::endl;
+    std::cout << "Creating Swapchain..." << std::endl;
+    backend.createSwapChain({WIDTH, HEIGHT});
+    backend.createImageViews();
 
-    // We will just wait 1 second to verify things launch headless automatically, since we are non-interactive AI.
-    // Wait, let's poll a few times just to be safe.
-    for (int i=0; i<10; i++) {
+    // Setup state manager and renderer
+    VulkanStateManager stateManager(&backend);
+    VulkanRenderer renderer(&backend, &stateManager);
+
+    std::cout << "Initializing Renderer for Swapchain..." << std::endl;
+    // We haven't compiled the shaders in build/ bin yet for test, so we pass empty for now just to test swapchain setup.
+    // Wait! The app will crash if shader paths are "none". I'll use real paths but we must ensure they compile.
+    // Let's defer renderer init to later if just testing swapchain integration.
+    
+    // For now we just prove swapchain compiles and runs
+    
+    std::cout << "Successfully generated " << backend.getSwapChainImageViews().size() << " Swapchain Images!" << std::endl;
+
+    for (int i = 0; i < 10; i++) {
         glfwPollEvents();
     }
 
-    // Cleanup securely!
-    // We cannot destroy surface after instance is destroyed.
-    // ModernVulkanBackend cleans up everything, but it currently clears the instance.
-    // Let's destroy it before cleaning the backend!
-    
-    // Wait, the device might need to wait for idle before destroying
     vkDeviceWaitIdle(backend.getDevice());
-    
+
     vkDestroySurfaceKHR(backend.getInstance(), surface, nullptr);
     backend.cleanup();
 

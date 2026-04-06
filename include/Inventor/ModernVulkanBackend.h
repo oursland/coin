@@ -20,6 +20,16 @@ public:
     VkQueue getGraphicsQueue() const { return graphicsQueue; }
     VkQueue getPresentQueue() const { return presentQueue; }
     VkCommandPool getCommandPool() const { return commandPool; }
+    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
+    VkSurfaceKHR getSurface() const { return surface; }
+
+    void createSwapChain(VkExtent2D windowExtent);
+    void createImageViews();
+    
+    VkSwapchainKHR getSwapChain() const { return swapChain; }
+    VkFormat getSwapChainImageFormat() const { return swapChainImageFormat; }
+    VkExtent2D getSwapChainExtent() const { return swapChainExtent; }
+    const std::vector<VkImageView>& getSwapChainImageViews() const { return swapChainImageViews; }
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
@@ -40,6 +50,20 @@ private:
     VkQueue presentQueue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
+
+    VkSwapchainKHR swapChain = VK_NULL_HANDLE;
+    std::vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    std::vector<VkImageView> swapChainImageViews;
+
+    // Swapchain support helpers
+    struct SwapChainSupportDetails {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkSurfaceFormatKHR> formats;
+        std::vector<VkPresentModeKHR> presentModes;
+    };
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
     
     // Extensions required for macOS MoltenVK Portability
     std::vector<const char*> getRequiredExtensions();

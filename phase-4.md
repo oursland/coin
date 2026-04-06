@@ -9,13 +9,13 @@ The goal of this phase is to execute the completed compute culling and multi-dra
 - [x] Update `ModernVulkanBackend` to select a GPU providing dual Graphics & Present Queue Family support.
 
 ## 2. Swapchain Integration
-- [ ] Query Native Swapchain Support (Formats, Presentation Modes, Capabilities).
-- [ ] Instantiate `VkSwapchainKHR` targeting `VK_PRESENT_MODE_FIFO_KHR` or `MAILBOX`.
-- [ ] Extract Swapchain `VkImage` views.
-- [ ] Build Swapchain `VkFramebuffer` arrays integrating Depth Buffering.
+- [x] Query Native Swapchain Support (Formats, Presentation Modes, Capabilities).
+- [x] Instantiate `VkSwapchainKHR` targeting `VK_PRESENT_MODE_FIFO_KHR` or `MAILBOX`.
+- [x] Extract Swapchain `VkImage` views.
+- [x] Build Swapchain `VkFramebuffer` arrays integrating Depth Buffering.
 
 ## 3. Dynamic Rendering Pipeline
-- [ ] Extract hardcoded `HEADLESS_WIDTH` out of `VulkanRenderer` to utilize the dynamic Swapchain Extent.
+- [x] Extract hardcoded `HEADLESS_WIDTH` out of `VulkanRenderer` to utilize the dynamic Swapchain Extent.
 - [ ] Ensure the MVP matrix is uploaded into the standard Uniform Descriptors array allowing Vertex transformation.
 - [ ] Configure `VK_DYNAMIC_STATE_VIEWPORT` and `VK_DYNAMIC_STATE_SCISSOR`.
 

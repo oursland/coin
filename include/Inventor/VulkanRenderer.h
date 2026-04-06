@@ -13,10 +13,11 @@ public:
     VulkanRenderer(ModernVulkanBackend* backend, VulkanStateManager* stateManager);
     ~VulkanRenderer();
 
-    void init(const std::string& vertShaderPath, const std::string& fragShaderPath);
+    void init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath);
+    void createFramebuffers(const std::vector<VkImageView>& imageViews);
     void cleanup();
 
-    void bindAndDrawHeadless(VkCommandBuffer cmdBuffer, uint32_t maxDrawCount);
+    void bindAndDraw(VkCommandBuffer cmdBuffer, uint32_t framebufferIndex, uint32_t maxDrawCount);
     
     VkQueryPool getQueryPool() const { return queryPool; }
 
@@ -29,22 +30,16 @@ private:
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
-    // Headless Framebuffer infrastructure
-    VkImage colorImage = VK_NULL_HANDLE;
-    VkDeviceMemory colorImageMemory = VK_NULL_HANDLE;
-    VkImageView colorImageView = VK_NULL_HANDLE;
-    VkFramebuffer headlessFramebuffer = VK_NULL_HANDLE;
-    // We strictly use 512x512 for headless metric evaluation
-    const uint32_t HEADLESS_WIDTH = 512;
-    const uint32_t HEADLESS_HEIGHT = 512;
+    std::vector<VkFramebuffer> swapchainFramebuffers;
+    VkExtent2D renderExtent;
+    VkFormat targetFormat;
 
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 
     VkQueryPool queryPool = VK_NULL_HANDLE;
 
-    void createRenderPass();
-    void createHeadlessFramebuffer();
+    void createRenderPass(VkFormat colorFormat);
     void createDescriptorSetLayout();
     void createGraphicsPipeline(const std::string& vertPath, const std::string& fragPath);
     void createQueryPool();
