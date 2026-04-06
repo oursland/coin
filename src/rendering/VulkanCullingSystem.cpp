@@ -41,6 +41,7 @@ VkShaderModule VulkanCullingSystem::createShaderModule(const std::string& path) 
 }
 
 void VulkanCullingSystem::init(const std::string& shaderPath) {
+    if (!vkBackend || !stateManager) throw std::runtime_error("Pointers null");
     VkDevice device = vkBackend->getDevice();
     
     // 1. Descriptor Set Layout
@@ -90,6 +91,7 @@ void VulkanCullingSystem::init(const std::string& shaderPath) {
     }
 
     // 3. Compute Pipeline
+    std::cout << "Creating Shader Module..." << std::endl;
     VkShaderModule computeShaderModule = createShaderModule(shaderPath);
     
     VkPipelineShaderStageCreateInfo shaderStageInfo{};
@@ -103,9 +105,11 @@ void VulkanCullingSystem::init(const std::string& shaderPath) {
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.stage = shaderStageInfo;
 
+    std::cout << "Creating Compute Pipeline..." << std::endl;
     if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create compute pipeline!");
     }
+    std::cout << "Created Compute Pipeline!" << std::endl;
     vkDestroyShaderModule(device, computeShaderModule, nullptr);
 
     // 4. Descriptor Pool
@@ -140,25 +144,34 @@ void VulkanCullingSystem::init(const std::string& shaderPath) {
 void VulkanCullingSystem::updateDescriptorSets(VkBuffer cameraUBO) {
     VkDevice device = vkBackend->getDevice();
 
+    std::cout << "  Camera: " << cameraUBO 
+              << "\n  Transform: " << stateManager->getTransformBuffer()
+              << "\n  BBox: " << stateManager->getBoundingBoxBuffer()
+              << "\n  Vis: " << stateManager->getVisibilityBuffer() << std::endl;
+
     VkDescriptorBufferInfo cameraInfo{};
     cameraInfo.buffer = cameraUBO;
     cameraInfo.offset = 0;
     cameraInfo.range = sizeof(CameraData);
 
+    // Fetch explicit sizes from StateManager! Wait, stateManager doesn't expose sizes directly.
+    // Let's compute sizes based on currentCapacity!
+    size_t capacity = stateManager->getCurrentCapacity();
+    
     VkDescriptorBufferInfo transformInfo{};
     transformInfo.buffer = stateManager->getTransformBuffer();
     transformInfo.offset = 0;
-    transformInfo.range = VK_WHOLE_SIZE;
+    transformInfo.range = 64 * capacity; // 64 bytes per TransformData
 
     VkDescriptorBufferInfo bboxInfo{};
     bboxInfo.buffer = stateManager->getBoundingBoxBuffer();
     bboxInfo.offset = 0;
-    bboxInfo.range = VK_WHOLE_SIZE;
+    bboxInfo.range = 32 * capacity; // 32 bytes per BoundingBoxData
 
     VkDescriptorBufferInfo visibilityInfo{};
     visibilityInfo.buffer = stateManager->getVisibilityBuffer();
     visibilityInfo.offset = 0;
-    visibilityInfo.range = VK_WHOLE_SIZE;
+    visibilityInfo.range = 4 * capacity; // 4 bytes per uint32_t
 
     VkWriteDescriptorSet descriptorWrites[4]{};
 
@@ -200,10 +213,14 @@ void VulkanCullingSystem::updateDescriptorSets(VkBuffer cameraUBO) {
 void VulkanCullingSystem::dispatchCulling(VkCommandBuffer cmdBuffer, uint32_t numElements) {
     if (numElements == 0) return;
 
+    std::cout << "  [dispatchCulling] Binding pipeline..." << std::endl;
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+    std::cout << "  [dispatchCulling] Binding descriptors..." << std::endl;
     vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
     // Group size is 256
     uint32_t groupCountX = (numElements + 255) / 256;
+    std::cout << "  [dispatchCulling] vkCmdDispatching X=" << groupCountX << std::endl;
     vkCmdDispatch(cmdBuffer, groupCountX, 1, 1);
+    std::cout << "  [dispatchCulling] vkCmdDispatch returned." << std::endl;
 }

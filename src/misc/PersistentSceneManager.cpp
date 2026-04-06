@@ -30,6 +30,8 @@ struct PersistentSceneManagerP {
   SbList<SbVec3f> boundingBoxesMin;
   SbList<SbVec3f> boundingBoxesMax;
   SbHash<const SoNode*, size_t> shapeMap;
+
+  mutable SbList<float> boundingBoxesAoS;
 };
 
 PersistentSceneManager::PersistentSceneManager(void)
@@ -143,6 +145,32 @@ const void* PersistentSceneManager::getMaterialData() const {
     if (this->pimpl->materials.getLength() == 0) return nullptr;
     return this->pimpl->materials.getArrayPtr();
 }
+
+size_t PersistentSceneManager::getNumBoundingBoxes() const {
+    return this->pimpl->boundingBoxesMin.getLength();
+}
+
+const void* PersistentSceneManager::getBoundingBoxData() const {
+    size_t num = pimpl->boundingBoxesMin.getLength();
+    if (num == 0) return nullptr;
+
+    pimpl->boundingBoxesAoS.truncate(0);
+    // Expand to fit
+    for (size_t i = 0; i < num; ++i) {
+        // Min bounds
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMin[i][0]);
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMin[i][1]);
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMin[i][2]);
+        pimpl->boundingBoxesAoS.append(0.0f); // pad
+        // Max bounds
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMax[i][0]);
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMax[i][1]);
+        pimpl->boundingBoxesAoS.append(pimpl->boundingBoxesMax[i][2]);
+        pimpl->boundingBoxesAoS.append(0.0f); // pad
+    }
+    return pimpl->boundingBoxesAoS.getArrayPtr();
+}
+
 
 void
 PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)

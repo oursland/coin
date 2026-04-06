@@ -23,6 +23,9 @@ public:
   size_t getNumMaterials() const;
   const void* getMaterialData() const;
 
+  size_t getNumBoundingBoxes() const;
+  const void* getBoundingBoxData() const;
+
 private:
   static void sensorCallback(void * data, SoSensor * sensor);
 

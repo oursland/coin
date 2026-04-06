@@ -48,6 +48,16 @@ void VulkanStateManager::allocateStorageBuffers(size_t numElements) {
         boundingBoxBuffer,
         boundingBoxMemory
     );
+
+    // Visibility bitmask buffer (array of unsigned ints)
+    VkDeviceSize visSize = sizeof(uint32_t) * numElements;
+    vkBackend->createBuffer(
+        visSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        visibilityBuffer,
+        visibilityMemory
+    );
 }
 
 void VulkanStateManager::freeStorageBuffers() {
@@ -104,6 +114,15 @@ void VulkanStateManager::allocateStagingBuffers(size_t numElements) {
         stagingMaterialBuffer,
         stagingMaterialMemory
     );
+
+    VkDeviceSize bboxSize = sizeof(BoundingBoxData) * numElements;
+    vkBackend->createBuffer(
+        bboxSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingBoundingBoxBuffer,
+        stagingBoundingBoxMemory
+    );
 }
 
 void VulkanStateManager::freeStagingBuffers() {
@@ -120,6 +139,12 @@ void VulkanStateManager::freeStagingBuffers() {
         vkDestroyBuffer(device, stagingMaterialBuffer, nullptr);
         vkFreeMemory(device, stagingMaterialMemory, nullptr);
         stagingMaterialBuffer = VK_NULL_HANDLE;
+    }
+
+    if (stagingBoundingBoxBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, stagingBoundingBoxBuffer, nullptr);
+        vkFreeMemory(device, stagingBoundingBoxMemory, nullptr);
+        stagingBoundingBoxBuffer = VK_NULL_HANDLE;
     }
 
     stagingCapacity = 0;
@@ -175,6 +200,22 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
         VkBufferCopy copyRegion{};
         copyRegion.size = sizeof(MaterialData) * numMaterials;
         vkCmdCopyBuffer(cmdBuffer, stagingMaterialBuffer, materialBuffer, 1, &copyRegion);
+    }
+
+    // 3. Map and Copy Bounding Boxes (Naive for now)
+    size_t numBBoxes = sceneManager->getNumBoundingBoxes();
+    if (numBBoxes > 0) {
+        const void* bboxData = sceneManager->getBoundingBoxData();
+        void* mappedData;
+        vkMapMemory(device, stagingBoundingBoxMemory, 0, sizeof(BoundingBoxData) * numBBoxes, 0, &mappedData);
+        memcpy(mappedData, bboxData, sizeof(BoundingBoxData) * numBBoxes);
+        vkUnmapMemory(device, stagingBoundingBoxMemory);
+
+        if (cmdBuffer == VK_NULL_HANDLE) cmdBuffer = vkBackend->beginSingleTimeCommands();
+
+        VkBufferCopy copyRegion{};
+        copyRegion.size = sizeof(BoundingBoxData) * numBBoxes;
+        vkCmdCopyBuffer(cmdBuffer, stagingBoundingBoxBuffer, boundingBoxBuffer, 1, &copyRegion);
     }
 
     if (cmdBuffer != VK_NULL_HANDLE) {

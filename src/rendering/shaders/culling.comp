@@ -59,8 +59,8 @@ bool isVisible(uint index) {
         // Test world center against plane
         float distanceToPlane = dot(normal, worldCenter) + d;
 
-        // If outside the plane by more than its radius, it's culled
-        if (distanceToPlane < -r) {
+        // If outside the plane by more than its radius, it's culled (adding epsilon for fp precision)
+        if (distanceToPlane <= -r) {
             return false;
         }
     }

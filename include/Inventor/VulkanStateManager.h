@@ -35,6 +35,8 @@ public:
     class PersistentSceneManager* sceneManager;
     void upload(class PersistentSceneManager* sceneManager);
 
+    size_t getCurrentCapacity() const { return currentCapacity; }
+
     VkBuffer getTransformBuffer() const { return transformBuffer; }
     VkBuffer getMaterialBuffer() const { return materialBuffer; }
     VkBuffer getBoundingBoxBuffer() const { return boundingBoxBuffer; }
@@ -61,6 +63,9 @@ private:
 
     VkBuffer stagingMaterialBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMaterialMemory = VK_NULL_HANDLE;
+
+    VkBuffer stagingBoundingBoxBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingBoundingBoxMemory = VK_NULL_HANDLE;
     
     size_t currentCapacity = 0;
     size_t stagingCapacity = 0;
