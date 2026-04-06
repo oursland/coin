@@ -29,6 +29,7 @@ set(COIN_MISC_FILES
 	SoProtoInstance.cpp
 	SoSceneManager.cpp
 	SoSceneManagerP.cpp
+	PersistentSceneManager.cpp
 	SoShaderGenerator.cpp
 	SoState.cpp
 	SoTempPath.cpp
