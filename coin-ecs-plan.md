@@ -134,6 +134,12 @@ flowchart TD
 - Track memory upload boundaries vs native `SoGLRenderAction` caching.
 - Analyze structural traversal overhead against contiguous uniform array passes mapping CPU dispatch deltas directly alongside native GPU latency.
 
+#### Phase 6: Material and Lighting ECS Integration
+- **Goal:** Translate Coin3D's traditional state-based traversal Material model into parallelized structural arrays mapped via bindless SSBO descriptor layouts.
+- Convert `SoMaterial` pointer states into explicit array indices assigned natively onto shapes during initialization graph translation.
+- Build parallel GPU Uniform or Storage buffers containing ambient, diffuse, specular, emmission, and shininess profiles matching `SoMaterial` output layouts.
+- Construct independent Lighting buffers caching `SoDirectionalLight` parameters parsing localized ambient/diffuse contributions efficiently against generated fragment normals inside modern shader passes.
+
 ## User Review Required
 
 > [!IMPORTANT]
