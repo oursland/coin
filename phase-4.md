@@ -16,14 +16,14 @@ The goal of this phase is to execute the completed compute culling and multi-dra
 
 ## 3. Dynamic Rendering Pipeline
 - [x] Extract hardcoded `HEADLESS_WIDTH` out of `VulkanRenderer` to utilize the dynamic Swapchain Extent.
-- [ ] Ensure the MVP matrix is uploaded into the standard Uniform Descriptors array allowing Vertex transformation.
+- [x] Ensure the MVP matrix is uploaded into the standard Uniform Descriptors array allowing Vertex transformation.
 - [x] Configure `VK_DYNAMIC_STATE_VIEWPORT` and `VK_DYNAMIC_STATE_SCISSOR`.
 
 ## 4. Input & Interactive Frustum Engine
-- [ ] Intercept GLFW Mouse and Keyboard callbacks (`W A S D` and mouse looking).
-- [ ] Construct the dynamic View/Projection math structures.
-- [ ] Compute all 6 bounding Frustum Planes from the combined Projection*View matrix dynamically on the CPU.
-- [ ] Bind dynamic data updating the `CameraData` Unified Storage Buffer prior to issuing the Dispatch.
+- [x] Intercept GLFW Mouse and Keyboard callbacks (`W A S D` and mouse looking).
+- [x] Construct the dynamic View/Projection math structures.
+- [x] Compute all 6 bounding Frustum Planes from the combined Projection*View matrix dynamically on the CPU.
+- [x] Bind dynamic data updating the `CameraData` Unified Storage Buffer prior to issuing the Dispatch.
 
 ## 5. Master Render Loop & Frame Pacer
 - [ ] Produce `VkSemaphore` tracking `imageAvailable` and `renderFinished`.

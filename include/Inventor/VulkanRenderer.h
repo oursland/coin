@@ -13,7 +13,7 @@ public:
     VulkanRenderer(ModernVulkanBackend* backend, VulkanStateManager* stateManager);
     ~VulkanRenderer();
 
-    void init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath);
+    void init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath, VkBuffer cameraUBO);
     void createFramebuffers(const std::vector<VkImageView>& imageViews);
     void cleanup();
 
@@ -43,7 +43,7 @@ private:
     void createDescriptorSetLayout();
     void createGraphicsPipeline(const std::string& vertPath, const std::string& fragPath);
     void createQueryPool();
-    void allocateDescriptorSet();
+    void allocateDescriptorSet(VkBuffer cameraUBO);
 
     VkShaderModule createShaderModule(const std::string& path);
 };

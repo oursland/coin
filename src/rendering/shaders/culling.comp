@@ -3,6 +3,7 @@
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std140) uniform CameraData {
+    mat4 viewProj;
     vec4 frustumPlanes[6]; // xyz: normal, w: distance
     uint numElements;
 } camera;

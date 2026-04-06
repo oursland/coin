@@ -12,13 +12,13 @@ VulkanRenderer::~VulkanRenderer() {
     cleanup();
 }
 
-void VulkanRenderer::init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath) {
+void VulkanRenderer::init(VkFormat colorFormat, VkExtent2D extent, const std::string& vertShaderPath, const std::string& fragShaderPath, VkBuffer cameraUBO) {
     targetFormat = colorFormat;
     renderExtent = extent;
     createRenderPass(colorFormat);
     createDescriptorSetLayout();
     createGraphicsPipeline(vertShaderPath, fragShaderPath);
-    allocateDescriptorSet();
+    allocateDescriptorSet(cameraUBO);
 }
 
 void VulkanRenderer::createFramebuffers(const std::vector<VkImageView>& imageViews) {
@@ -103,11 +103,17 @@ void VulkanRenderer::createDescriptorSetLayout() {
     materialBinding.descriptorCount = 1;
     materialBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkDescriptorSetLayoutBinding bindings[] = {transformBinding, materialBinding};
+    VkDescriptorSetLayoutBinding cameraBinding{};
+    cameraBinding.binding = 2;
+    cameraBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    cameraBinding.descriptorCount = 1;
+    cameraBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutBinding bindings[] = {transformBinding, materialBinding, cameraBinding};
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 2;
+    layoutInfo.bindingCount = 3;
     layoutInfo.pBindings = bindings;
 
     if (vkCreateDescriptorSetLayout(backend->getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
@@ -269,16 +275,18 @@ void VulkanRenderer::createGraphicsPipeline(const std::string& vertPath, const s
 }
 
 
-void VulkanRenderer::allocateDescriptorSet() {
-    VkDescriptorPoolSize poolSizes[2]{};
+void VulkanRenderer::allocateDescriptorSet(VkBuffer cameraUBO) {
+    VkDescriptorPoolSize poolSizes[3]{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = 1;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[2].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 2;
+    poolInfo.poolSizeCount = 3;
     poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = 1;
 
@@ -306,7 +314,12 @@ void VulkanRenderer::allocateDescriptorSet() {
     materialInfo.offset = 0;
     materialInfo.range = VK_WHOLE_SIZE;
 
-    VkWriteDescriptorSet descriptorWrites[2]{};
+    VkDescriptorBufferInfo cameraInfo{};
+    cameraInfo.buffer = cameraUBO;
+    cameraInfo.offset = 0;
+    cameraInfo.range = VK_WHOLE_SIZE;
+
+    VkWriteDescriptorSet descriptorWrites[3]{};
 
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = descriptorSet;
@@ -324,7 +337,15 @@ void VulkanRenderer::allocateDescriptorSet() {
     descriptorWrites[1].descriptorCount = 1;
     descriptorWrites[1].pBufferInfo = &materialInfo;
 
-    vkUpdateDescriptorSets(backend->getDevice(), 2, descriptorWrites, 0, nullptr);
+    descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[2].dstSet = descriptorSet;
+    descriptorWrites[2].dstBinding = 2;
+    descriptorWrites[2].dstArrayElement = 0;
+    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrites[2].descriptorCount = 1;
+    descriptorWrites[2].pBufferInfo = &cameraInfo;
+
+    vkUpdateDescriptorSets(backend->getDevice(), 3, descriptorWrites, 0, nullptr);
 }
 
 void VulkanRenderer::bindAndDraw(VkCommandBuffer cmdBuffer, uint32_t framebufferIndex, uint32_t maxDrawCount) {
