@@ -17,6 +17,8 @@ public:
 
   size_t getNumTransforms() const;
   const void* getTransformData() const;
+  void getTransformDirtyRange(size_t& minIndex, size_t& maxIndex) const;
+  void resetTransformDirtyRange();
 
   size_t getNumMaterials() const;
   const void* getMaterialData() const;

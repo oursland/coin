@@ -119,7 +119,7 @@ void VulkanStateManager::freeStagingBuffers() {
     stagingCapacity = 0;
 }
 
-void VulkanStateManager::upload(const PersistentSceneManager* sceneManager) {
+void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
     size_t numTransforms = sceneManager->getNumTransforms();
     size_t numMaterials = sceneManager->getNumMaterials();
     size_t maxElements = numTransforms > numMaterials ? numTransforms : numMaterials;
@@ -130,40 +130,49 @@ void VulkanStateManager::upload(const PersistentSceneManager* sceneManager) {
     allocateStagingBuffers(maxElements);
 
     VkDevice device = vkBackend->getDevice();
+    VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
 
-    // 1. Map and Copy Transforms
-    if (numTransforms > 0) {
+    size_t tMin, tMax;
+    sceneManager->getTransformDirtyRange(tMin, tMax);
+    
+    // 1. Map and Copy Transforms (Targeted Range)
+    if (numTransforms > 0 && tMin <= tMax && tMax < numTransforms) {
+        size_t count = tMax - tMin + 1;
         const void* transformData = sceneManager->getTransformData();
         void* mappedData;
-        vkMapMemory(device, stagingTransformMemory, 0, sizeof(TransformData) * numTransforms, 0, &mappedData);
-        memcpy(mappedData, transformData, sizeof(TransformData) * numTransforms);
+        
+        vkMapMemory(device, stagingTransformMemory, sizeof(TransformData) * tMin, sizeof(TransformData) * count, 0, &mappedData);
+        memcpy(mappedData, (const char*)transformData + (sizeof(TransformData) * tMin), sizeof(TransformData) * count);
         vkUnmapMemory(device, stagingTransformMemory);
+
+        if (cmdBuffer == VK_NULL_HANDLE) cmdBuffer = vkBackend->beginSingleTimeCommands();
+
+        VkBufferCopy copyRegion{};
+        copyRegion.srcOffset = sizeof(TransformData) * tMin;
+        copyRegion.dstOffset = sizeof(TransformData) * tMin;
+        copyRegion.size = sizeof(TransformData) * count;
+        vkCmdCopyBuffer(cmdBuffer, stagingTransformBuffer, transformBuffer, 1, &copyRegion);
+        
+        sceneManager->resetTransformDirtyRange();
     }
 
-    // 2. Map and Copy Materials
-    if (numMaterials > 0) {
+    // 2. Map and Copy Materials (Naive for now)
+    if (numMaterials > 0) { // Should similarly implement material dirty ranges if implemented
         const void* materialData = sceneManager->getMaterialData();
         void* mappedData;
         vkMapMemory(device, stagingMaterialMemory, 0, sizeof(MaterialData) * numMaterials, 0, &mappedData);
         memcpy(mappedData, materialData, sizeof(MaterialData) * numMaterials);
         vkUnmapMemory(device, stagingMaterialMemory);
-    }
 
-    // 3. Issue Asynchronous Upload Compute (vkCmdCopyBuffer) via Single-Time Commands
-    VkCommandBuffer cmdBuffer = vkBackend->beginSingleTimeCommands();
+        if (cmdBuffer == VK_NULL_HANDLE) cmdBuffer = vkBackend->beginSingleTimeCommands();
 
-    if (numTransforms > 0) {
-        VkBufferCopy copyRegion{};
-        copyRegion.size = sizeof(TransformData) * numTransforms;
-        vkCmdCopyBuffer(cmdBuffer, stagingTransformBuffer, transformBuffer, 1, &copyRegion);
-    }
-
-    if (numMaterials > 0) {
         VkBufferCopy copyRegion{};
         copyRegion.size = sizeof(MaterialData) * numMaterials;
         vkCmdCopyBuffer(cmdBuffer, stagingMaterialBuffer, materialBuffer, 1, &copyRegion);
     }
 
-    vkBackend->endSingleTimeCommands(cmdBuffer);
+    if (cmdBuffer != VK_NULL_HANDLE) {
+        vkBackend->endSingleTimeCommands(cmdBuffer);
+    }
 }
 

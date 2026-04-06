@@ -19,6 +19,8 @@ struct PersistentSceneManagerP {
   SbList<SbMatrix> transforms;
   // Hashing Dictionary binding SoNode* to array index
   SbHash<const SoNode*, size_t> transformMap;
+  size_t transformDirtyMin = (size_t)-1;
+  size_t transformDirtyMax = 0;
   
   // SoA: Material Arrays (e.g. Diffuse Colors)
   SbList<SbColor> materials;
@@ -55,6 +57,9 @@ static void traverseNodeInit(SoNode * node, PersistentSceneManagerP * pimpl)
     SoTransform * t = (SoTransform *)node;
     size_t currentIndex = pimpl->transforms.getLength();
     pimpl->transformMap.put(node, currentIndex);
+
+    if (currentIndex < pimpl->transformDirtyMin) pimpl->transformDirtyMin = currentIndex;
+    if (currentIndex > pimpl->transformDirtyMax) pimpl->transformDirtyMax = currentIndex;
 
     SbMatrix mat;
     mat.setTransform(t->translation.getValue(), t->rotation.getValue(), t->scaleFactor.getValue(), t->scaleOrientation.getValue(), t->center.getValue());
@@ -120,6 +125,16 @@ const void* PersistentSceneManager::getTransformData() const {
     return this->pimpl->transforms.getArrayPtr();
 }
 
+void PersistentSceneManager::getTransformDirtyRange(size_t& minIndex, size_t& maxIndex) const {
+    minIndex = this->pimpl->transformDirtyMin;
+    maxIndex = this->pimpl->transformDirtyMax;
+}
+
+void PersistentSceneManager::resetTransformDirtyRange() {
+    this->pimpl->transformDirtyMin = (size_t)-1;
+    this->pimpl->transformDirtyMax = 0;
+}
+
 size_t PersistentSceneManager::getNumMaterials() const {
     return this->pimpl->materials.getLength();
 }
@@ -144,6 +159,9 @@ PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)
               SbMatrix mat;
               mat.setTransform(t->translation.getValue(), t->rotation.getValue(), t->scaleFactor.getValue(), t->scaleOrientation.getValue(), t->center.getValue());
               thisp->pimpl->transforms[idx] = mat; // update existing element
+              
+              if (idx < thisp->pimpl->transformDirtyMin) thisp->pimpl->transformDirtyMin = idx;
+              if (idx > thisp->pimpl->transformDirtyMax) thisp->pimpl->transformDirtyMax = idx;
           }
       }
       else if (triggerNode->isOfType(SoMaterial::getClassTypeId())) {
