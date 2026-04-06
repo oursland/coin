@@ -128,6 +128,12 @@ flowchart TD
 - Establish robust Vulkan Synchronization (`VkSemaphore` and `VkFence`) to safely orchestrate CPU/GPU frame pacing.
 - Add an interactive flying camera interface mapping inputs to the compute shader `std140` Frustum arrays to actively observe frustum culling dynamically on-screen!
 
+#### Phase 5: Benchmark Evaluation (Legacy vs Modern)
+- **Goal:** Quantify the computational and throughput advantages of the modernized ECS pipeline against legacy Object-Oriented tree traversal.
+- Build a dual-metric headless runner executing exactly identical graph depths.
+- Track memory upload boundaries vs native `SoGLRenderAction` caching.
+- Analyze structural traversal overhead against contiguous uniform array passes mapping CPU dispatch deltas directly alongside native GPU latency.
+
 ## User Review Required
 
 > [!IMPORTANT]
