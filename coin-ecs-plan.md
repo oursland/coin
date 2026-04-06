@@ -119,6 +119,15 @@ flowchart TD
 - Aggregate all mesh descriptions into a unified Vertex and Index buffer mapped via Vulkan.
 - Substitute the localized geometry renderer with a single `vkCmdDrawIndexedIndirect` MDI execution.
 
+#### Phase 4: Interactive GUI Testing Setup
+- **Goal:** Visually validate the GPU-driven Render Pipeline using an on-screen Swapchain.
+- Create an OS-level window context leveraging a library like GLFW (or raw Cocoa via Metal Surface).
+- Initialize the Vulkan `VkSurfaceKHR` using macOS-specific extensions (`VK_EXT_metal_surface`).
+- Develop the `VkSwapchainKHR` logic handling image acquisition, presentation modes, and resizing.
+- Bind the Phase 3 `VkRenderPass` dynamically to the respective framebuffers obtained from active Swapchain Images.
+- Establish robust Vulkan Synchronization (`VkSemaphore` and `VkFence`) to safely orchestrate CPU/GPU frame pacing.
+- Add an interactive flying camera interface mapping inputs to the compute shader `std140` Frustum arrays to actively observe frustum culling dynamically on-screen!
+
 ## User Review Required
 
 > [!IMPORTANT]
