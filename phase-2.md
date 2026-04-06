@@ -8,12 +8,12 @@ This document contains the detailed breakdown of tasks for Phase 2 of the Coin3D
 - [x] Initialize Vulkan Memory Allocator (VMA) or raw allocation mechanisms for large GPU-side buffers.
 
 ## 2. Vulkan Storage Buffer Allocation
-- [ ] Create a `VulkanStateManager` to mirror `PersistentSceneManager` arrays.
-- [ ] Define C++ layouts tightly packing data to match GLSL `std430` layout alignment (compiled to SPIR-V):
-  - [ ] Transform Array buffer (`struct TransformData { mat4 matrix; };`).
-  - [ ] Material Array buffer (`struct MaterialData { vec4 color; };`).
-  - [ ] Bounding Box Array buffer (`struct BoundingBoxData { vec4 min; vec4 max; };`).
-- [ ] Implement Vulkan Buffer allocation (`vkCreateBuffer`, `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`) generating the device-local buffers for the structures above.
+- [x] Create a `VulkanStateManager` to mirror `PersistentSceneManager` arrays.
+- [x] Define C++ layouts tightly packing data to match GLSL `std430` layout alignment (compiled to SPIR-V):
+  - [x] Transform Array buffer (`struct TransformData { mat4 matrix; };`).
+  - [x] Material Array buffer (`struct MaterialData { vec4 color; };`).
+  - [x] Bounding Box Array buffer (`struct BoundingBoxData { vec4 min; vec4 max; };`).
+- [x] Implement Vulkan Buffer allocation (`vkCreateBuffer`, `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`) generating the device-local buffers for the structures above.
 
 ## 3. CPU to GPU Asynchronous Streaming
 - [ ] Hook into the pre-render pass or backend frame dispatcher.
