@@ -7,8 +7,12 @@ ModernVulkanBackend::~ModernVulkanBackend() {
     cleanup();
 }
 
-void ModernVulkanBackend::init() {
-    createInstance();
+void ModernVulkanBackend::initInstance(const std::vector<const char*>& additionalExtensions) {
+    createInstance(additionalExtensions);
+}
+
+void ModernVulkanBackend::initDevice(VkSurfaceKHR surface) {
+    this->surface = surface;
     pickPhysicalDevice();
     createLogicalDevice();
     createCommandPool();
@@ -38,7 +42,7 @@ std::vector<const char*> ModernVulkanBackend::getRequiredExtensions() {
     return extensions;
 }
 
-void ModernVulkanBackend::createInstance() {
+void ModernVulkanBackend::createInstance(const std::vector<const char*>& additionalExtensions) {
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "Coin3D ModernVulkanBackend";
@@ -55,6 +59,7 @@ void ModernVulkanBackend::createInstance() {
     createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
     auto extensions = getRequiredExtensions();
+    extensions.insert(extensions.end(), additionalExtensions.begin(), additionalExtensions.end());
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
@@ -96,26 +101,58 @@ void ModernVulkanBackend::pickPhysicalDevice() {
 }
 
 void ModernVulkanBackend::createLogicalDevice() {
-    // For simplicity, we queue family index 0. A robust implementation would query vkGetPhysicalDeviceQueueFamilyProperties
-    uint32_t graphicsFamily = 0; 
+    uint32_t graphicsFamily = 0;
+    uint32_t presentFamily = 0;
+    bool foundPresent = false;
 
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = graphicsFamily;
-    queueCreateInfo.queueCount = 1;
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
+
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            graphicsFamily = i;
+        }
+        if (surface != VK_NULL_HANDLE) {
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupport);
+            if (presentSupport) {
+                presentFamily = i;
+                foundPresent = true;
+            }
+        }
+    } 
+
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    std::vector<uint32_t> uniqueQueueFamilies = {graphicsFamily};
+    if (foundPresent && presentFamily != graphicsFamily) {
+        uniqueQueueFamilies.push_back(presentFamily);
+    }
+
     float queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    for (uint32_t queueFamily : uniqueQueueFamilies) {
+        VkDeviceQueueCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        info.queueFamilyIndex = queueFamily;
+        info.queueCount = 1;
+        info.pQueuePriorities = &queuePriority;
+        queueCreateInfos.push_back(info);
+    }
 
     VkPhysicalDeviceFeatures deviceFeatures{};
 
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.queueCreateInfoCount = 1;
+    createInfo.pQueueCreateInfos = queueCreateInfos.data();
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pEnabledFeatures = &deviceFeatures;
 
-    // We need portability subset on macOS
     std::vector<const char*> deviceExtensions = { "VK_KHR_portability_subset" };
+    if (surface != VK_NULL_HANDLE) {
+        deviceExtensions.push_back("VK_KHR_swapchain");
+    }
+
     createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
     createInfo.enabledLayerCount = 0;
@@ -125,6 +162,9 @@ void ModernVulkanBackend::createLogicalDevice() {
     }
 
     vkGetDeviceQueue(device, graphicsFamily, 0, &graphicsQueue);
+    if (foundPresent) {
+        vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
+    }
 }
 
 uint32_t ModernVulkanBackend::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const {
