@@ -58,6 +58,24 @@ void VulkanStateManager::allocateStorageBuffers(size_t numElements) {
         visibilityBuffer,
         visibilityMemory
     );
+
+    VkDeviceSize indirectSize = sizeof(VkDrawIndexedIndirectCommand) * numElements;
+    vkBackend->createBuffer(
+        indirectSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        indirectDrawBuffer,
+        indirectDrawMemory
+    );
+
+    VkDeviceSize countSize = sizeof(uint32_t);
+    vkBackend->createBuffer(
+        countSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        drawCountBuffer,
+        drawCountMemory
+    );
 }
 
 void VulkanStateManager::freeStorageBuffers() {
@@ -86,6 +104,18 @@ void VulkanStateManager::freeStorageBuffers() {
         vkDestroyBuffer(device, visibilityBuffer, nullptr);
         vkFreeMemory(device, visibilityMemory, nullptr);
         visibilityBuffer = VK_NULL_HANDLE;
+    }
+
+    if (indirectDrawBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, indirectDrawBuffer, nullptr);
+        vkFreeMemory(device, indirectDrawMemory, nullptr);
+        indirectDrawBuffer = VK_NULL_HANDLE;
+    }
+
+    if (drawCountBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, drawCountBuffer, nullptr);
+        vkFreeMemory(device, drawCountMemory, nullptr);
+        drawCountBuffer = VK_NULL_HANDLE;
     }
     
     currentCapacity = 0;

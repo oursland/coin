@@ -41,6 +41,8 @@ public:
     VkBuffer getMaterialBuffer() const { return materialBuffer; }
     VkBuffer getBoundingBoxBuffer() const { return boundingBoxBuffer; }
     VkBuffer getVisibilityBuffer() const { return visibilityBuffer; }
+    VkBuffer getIndirectDrawBuffer() const { return indirectDrawBuffer; }
+    VkBuffer getDrawCountBuffer() const { return drawCountBuffer; }
 
 private:
     ModernVulkanBackend* vkBackend;
@@ -56,6 +58,12 @@ private:
 
     VkBuffer visibilityBuffer = VK_NULL_HANDLE;
     VkDeviceMemory visibilityMemory = VK_NULL_HANDLE;
+
+    VkBuffer indirectDrawBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory indirectDrawMemory = VK_NULL_HANDLE;
+
+    VkBuffer drawCountBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory drawCountMemory = VK_NULL_HANDLE;
 
     // Staging buffers mapping CPU-visible memory
     VkBuffer stagingTransformBuffer = VK_NULL_HANDLE;

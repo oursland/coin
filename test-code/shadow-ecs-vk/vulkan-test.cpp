@@ -206,10 +206,38 @@ int main(int argc, char** argv) {
         }
         std::cout << "Culling Compute Correctness Verified: GPU exactly matches CPU intersection physics." << std::endl;
 
+        // Verify DrawCount Buffer matches CPU count
+        uint32_t cpuVisibleCount = 0;
+        for (int i = 0; i < NUM_NODES; ++i) {
+            if (cpuVisibility[i]) cpuVisibleCount++;
+        }
+
+        VkBuffer readbackCountBuffer;
+        VkDeviceMemory readbackCountMemory;
+        backend.createBuffer(sizeof(uint32_t), VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, readbackCountBuffer, readbackCountMemory);
+
+        VkCommandBuffer countCmd = backend.beginSingleTimeCommands();
+        VkBufferCopy countCopy{};
+        countCopy.size = sizeof(uint32_t);
+        vkCmdCopyBuffer(countCmd, stateManager.getDrawCountBuffer(), readbackCountBuffer, 1, &countCopy);
+        backend.endSingleTimeCommands(countCmd);
+
+        void* countMapped;
+        vkMapMemory(backend.getDevice(), readbackCountMemory, 0, sizeof(uint32_t), 0, &countMapped);
+        uint32_t gpuVisibleCount = *((uint32_t*)countMapped);
+        vkUnmapMemory(backend.getDevice(), readbackCountMemory);
+
+        std::cout << "Atomic Draw Count Validation: CPU " << cpuVisibleCount << " vs GPU " << gpuVisibleCount << std::endl;
+        if (cpuVisibleCount != gpuVisibleCount) {
+            throw std::runtime_error("Draw counts mismatch!");
+        }
+
         vkDestroyBuffer(backend.getDevice(), cameraUBO, nullptr);
         vkFreeMemory(backend.getDevice(), cameraUBOMemory, nullptr);
         vkDestroyBuffer(backend.getDevice(), readbackVisBuffer, nullptr);
         vkFreeMemory(backend.getDevice(), readbackVisMemory, nullptr);
+        vkDestroyBuffer(backend.getDevice(), readbackCountBuffer, nullptr);
+        vkFreeMemory(backend.getDevice(), readbackCountMemory, nullptr);
 
         root->unref();
 

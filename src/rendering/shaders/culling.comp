@@ -28,6 +28,22 @@ layout(std430, set = 0, binding = 3) writeonly buffer Visibility {
     uint visibility[];
 };
 
+struct VkDrawIndexedIndirectCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int  vertexOffset;
+    uint firstInstance;
+};
+
+layout(std430, set = 0, binding = 4) writeonly buffer IndirectDraws {
+    VkDrawIndexedIndirectCommand commands[];
+} indirect;
+
+layout(std430, set = 0, binding = 5) buffer DrawCount {
+    uint count;
+} drawCount;
+
 // Transform local bounding box to world space and test against frustum planes
 bool isVisible(uint index) {
     vec3 minB = bboxes[index].minBounds.xyz;
@@ -83,6 +99,14 @@ void main() {
 
     if (isVisible(gID)) {
         visibility[gID] = 1;
+        
+        // Append an indirect draw command for this visible instance!
+        uint slot = atomicAdd(drawCount.count, 1);
+        indirect.commands[slot].indexCount = 36; // hardcoded Cube index count for now
+        indirect.commands[slot].instanceCount = 1;
+        indirect.commands[slot].firstIndex = 0;
+        indirect.commands[slot].vertexOffset = 0;
+        indirect.commands[slot].firstInstance = gID;
     } else {
         visibility[gID] = 0;
     }

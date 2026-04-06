@@ -69,11 +69,23 @@ void VulkanCullingSystem::init(const std::string& shaderPath) {
     visibilityBinding.descriptorCount = 1;
     visibilityBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    VkDescriptorSetLayoutBinding bindings[] = {cameraBinding, transformBinding, bboxBinding, visibilityBinding};
+    VkDescriptorSetLayoutBinding indirectBinding{};
+    indirectBinding.binding = 4;
+    indirectBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    indirectBinding.descriptorCount = 1;
+    indirectBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutBinding countBinding{};
+    countBinding.binding = 5;
+    countBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    countBinding.descriptorCount = 1;
+    countBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutBinding bindings[] = {cameraBinding, transformBinding, bboxBinding, visibilityBinding, indirectBinding, countBinding};
     
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 4;
+    layoutInfo.bindingCount = 6;
     layoutInfo.pBindings = bindings;
 
     if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
@@ -117,7 +129,7 @@ void VulkanCullingSystem::init(const std::string& shaderPath) {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 3;
+    poolSizes[1].descriptorCount = 5; // Transforms, BBox, Vis, Indirect, Count
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -173,7 +185,17 @@ void VulkanCullingSystem::updateDescriptorSets(VkBuffer cameraUBO) {
     visibilityInfo.offset = 0;
     visibilityInfo.range = 4 * capacity; // 4 bytes per uint32_t
 
-    VkWriteDescriptorSet descriptorWrites[4]{};
+    VkDescriptorBufferInfo indirectInfo{};
+    indirectInfo.buffer = stateManager->getIndirectDrawBuffer();
+    indirectInfo.offset = 0;
+    indirectInfo.range = VK_WHOLE_SIZE; // It's fine to bind whole for indirectly written buffer
+
+    VkDescriptorBufferInfo countInfo{};
+    countInfo.buffer = stateManager->getDrawCountBuffer();
+    countInfo.offset = 0;
+    countInfo.range = sizeof(uint32_t);
+
+    VkWriteDescriptorSet descriptorWrites[6]{};
 
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = descriptorSet;
@@ -207,7 +229,23 @@ void VulkanCullingSystem::updateDescriptorSets(VkBuffer cameraUBO) {
     descriptorWrites[3].descriptorCount = 1;
     descriptorWrites[3].pBufferInfo = &visibilityInfo;
 
-    vkUpdateDescriptorSets(device, 4, descriptorWrites, 0, nullptr);
+    descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[4].dstSet = descriptorSet;
+    descriptorWrites[4].dstBinding = 4;
+    descriptorWrites[4].dstArrayElement = 0;
+    descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[4].descriptorCount = 1;
+    descriptorWrites[4].pBufferInfo = &indirectInfo;
+
+    descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[5].dstSet = descriptorSet;
+    descriptorWrites[5].dstBinding = 5;
+    descriptorWrites[5].dstArrayElement = 0;
+    descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[5].descriptorCount = 1;
+    descriptorWrites[5].pBufferInfo = &countInfo;
+
+    vkUpdateDescriptorSets(device, 6, descriptorWrites, 0, nullptr);
 }
 
 void VulkanCullingSystem::dispatchCulling(VkCommandBuffer cmdBuffer, uint32_t numElements) {
@@ -217,6 +255,16 @@ void VulkanCullingSystem::dispatchCulling(VkCommandBuffer cmdBuffer, uint32_t nu
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
     std::cout << "  [dispatchCulling] Binding descriptors..." << std::endl;
     vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+
+    // Clear the atomic draw counter to 0 before we dispatch!
+    vkCmdFillBuffer(cmdBuffer, stateManager->getDrawCountBuffer(), 0, sizeof(uint32_t), 0);
+
+    // Memory Barrier to ensure clear happens before compute shader runs
+    VkMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmdBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
 
     // Group size is 256
     uint32_t groupCountX = (numElements + 255) / 256;
