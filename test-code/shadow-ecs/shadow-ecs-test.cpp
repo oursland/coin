@@ -54,6 +54,18 @@ int main(int argc, char ** argv)
     std::cout << "1,000,000 transform updates took " << msECS << " ms." << std::endl;
     std::cout << "Differential overhead of synchronous ECS replication: " << ((msECS - msLegacy) * 1000.0) / 1000000.0 << " microseconds per update." << std::endl;
 
+    std::cout << "\n--- STRUCTURAL MUTATION: Topology Rebuild Fallback ---" << std::endl;
+    auto startStruct = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < 1000; ++i) {
+        SoSphere * newSphere = new SoSphere;
+        root->addChild(newSphere);
+    }
+    auto endStruct = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> diffStruct = endStruct - startStruct;
+    double msStruct = diffStruct.count();
+    
+    std::cout << "1,000 recursive topology expansions (array rebuilds) took " << msStruct << " ms." << std::endl;
+
     delete manager;
     root->unref();
     return 0;
