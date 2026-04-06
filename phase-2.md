@@ -30,7 +30,7 @@ This document contains the detailed breakdown of tasks for Phase 2 of the Coin3D
 - [x] Implement the box/frustum intersection algorithm checking all 8 corners across the 6 planes directly on the GPU.
 
 ## 5. Indirect Buffer Output
-- [ ] Define the Indirect Draw buffer layout struct on the GPU:
+- [x] Define the Indirect Draw buffer layout struct on the GPU:
   ```glsl
   struct VkDrawIndexedIndirectCommand {
       uint indexCount;
@@ -40,12 +40,12 @@ This document contains the detailed breakdown of tasks for Phase 2 of the Coin3D
       uint firstInstance;
   };
   ```
-- [ ] Bind this struct array as `layout(std430, binding = 2) writeonly buffer DrawCommands`.
-- [ ] Update the Compute Shader to conditionally append an indirect command into this buffer using `atomicAdd` on the command count, strictly if the bounding box passes the frustum test.
+- [x] Bind this struct array as `layout(std430, binding = 2) writeonly buffer DrawCommands`.
+- [x] Update the Compute Shader to conditionally append an indirect command into this buffer using `atomicAdd` on the command count, strictly if the bounding box passes the frustum test.
 
 ## 6. Execution and Verification
-- [ ] Implement the Vulkan `VkPipeline` and `VkComputePipelineCreateInfo` to load the SPIR-V compute shader.
-- [ ] Dispatch the compute shader natively (`vkCmdDispatch(cmdBuffer, numShapes / workGroupSize, 1, 1)`).
-- [ ] Place a Pipeline Barrier (`vkCmdPipelineBarrier`) waiting for the compute shader to finish writing the indirect buffer before the fragment stage reads it.
-- [ ] Write a visual unit test to verify shapes that are positioned strictly outside the camera view are truncated from the indirect draw output.
-- [ ] Benchmark Compute Shader culling runtime mapped against legacy CPU traversal.
+- [x] Implement the Vulkan `VkPipeline` and `VkComputePipelineCreateInfo` to load the SPIR-V compute shader.
+- [x] Dispatch the compute shader natively (`vkCmdDispatch(cmdBuffer, numShapes / workGroupSize, 1, 1)`).
+- [x] Place a Pipeline Barrier (`vkCmdPipelineBarrier`) waiting for the compute shader to finish writing the indirect buffer before the fragment stage reads it.
+- [x] Write a visual unit test to verify shapes that are positioned strictly outside the camera view are truncated from the indirect draw output.
+- [x] Benchmark Compute Shader culling runtime mapped against legacy CPU traversal.
