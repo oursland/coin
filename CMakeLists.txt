@@ -929,6 +929,7 @@ endif()
 if(COIN_BUILD_TESTS)
   enable_testing()
   add_subdirectory(testsuite)
+  add_subdirectory(test-code)
 endif()
 
 # add_feature_info(ThreadSafe COIN_THREADSAFE "Thread safe render traversals.")

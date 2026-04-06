@@ -140,6 +140,40 @@ flowchart TD
 - Build parallel GPU Uniform or Storage buffers containing ambient, diffuse, specular, emmission, and shininess profiles matching `SoMaterial` output layouts.
 - Construct independent Lighting buffers caching `SoDirectionalLight` parameters parsing localized ambient/diffuse contributions efficiently against generated fragment normals inside modern shader passes.
 
+#### Phase 7: CMake Integration & Code Verification
+- **Goal:** Formalize the new pipeline executables by integrating them directly into the CMake build tree, allowing standard CI/CD and developer workflows to invoke the functional validations dynamically using conventional testing patterns.
+- Implement conditional inclusion of testing targets mapping GLFW and Vulkan components seamlessly inside `test-code/CMakeLists.txt`.
+
+## Build and Test Instructions
+
+To validate the modern GPU-driven pipeline and execute the dynamic UI test locally, follow these steps natively from the macOS terminal:
+
+1. **Configure the Project**
+   Ensure you have Vulkan (via VulkanSDK with MoltenVK) and GLFW available on your system, then trigger CMake to output the `test-code` targets:
+   ```bash
+   mkdir build && cd build
+   cmake .. -DCOIN_BUILD_TESTS=ON -DCOIN_BUILD_GLX=OFF
+   ```
+   
+2. **Build the Solution**
+   Compile the library and the new executables:
+   ```bash
+   cmake --build . -j$(sysctl -n hw.ncpu)
+   ```
+
+3. **Run the ECS Benchmark**
+   Execute the headless verification test comparing `SoGLRenderAction` vs `vkCmdDrawIndexedIndirect` speeds:
+   ```bash
+   ./bin/benchmark-ecs-test
+   ```
+   
+4. **Run the GPU-Driven GUI Verification**
+   Launch the interactive window environment validating the `SoMaterial` binding ECS updates. *Ensure your current working directory exposes `src/rendering/shaders/` to securely locate compile `.spv` formats.*
+   ```bash
+   cd ..
+   ./build/bin/vulkan-gui-test
+   ```
+
 ## User Review Required
 
 > [!IMPORTANT]
