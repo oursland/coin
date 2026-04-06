@@ -238,6 +238,7 @@ int main(int argc, char** argv) {
         vkFreeMemory(backend.getDevice(), readbackVisMemory, nullptr);
         vkDestroyBuffer(backend.getDevice(), readbackCountBuffer, nullptr);
         vkFreeMemory(backend.getDevice(), readbackCountMemory, nullptr);
+        vkDestroyQueryPool(backend.getDevice(), queryPool, nullptr);
 
         root->unref();
 
