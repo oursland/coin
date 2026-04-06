@@ -32,9 +32,9 @@ This document contains the detailed breakdown of tasks for Phase 1 of the Coin3D
 - [x] Implement memcpy/update functions for:
   - [x] Updating modified transforms.
   - [x] Updating modified materials.
-- [ ] Add logic to handle structural changes:
-  - [ ] Node insertions (allocating new array slots, updating hierarchy mappings).
-  - [ ] Node removals (invalidating indices, managing holes or compacting arrays).
+- [x] Add logic to handle structural changes:
+  - [x] Node insertions (allocating new array slots, updating hierarchy mappings). *(Handled via full rebuild fallback)*
+  - [x] Node removals (invalidating indices, managing holes or compacting arrays). *(Handled via full rebuild fallback)*
 
 ## 6. Testing, Validation, and Build System
 - [x] Write logic to verify that zero modifications were required in `SoTransform.cpp` or sibling legacy modules.

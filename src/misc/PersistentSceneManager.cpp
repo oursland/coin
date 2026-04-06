@@ -136,7 +136,19 @@ PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)
                   thisp->pimpl->materials[idx] = m->diffuseColor[0];
           }
       }
-      // Note: for dynamic additions/removals, triggerNode would be SoGroup
-      // we would clear all data, re-traverse, or apply delta modifications.
+      else if (triggerNode->isOfType(SoGroup::getClassTypeId())) {
+          // Structural changes (Node Insertions/Removals) emit from the parent SoGroup.
+          // For now, our robust fallback is to compact/rebuild the active SoA arrays 
+          // to ensure indices correctly mirror the newly structured tree.
+          thisp->pimpl->transforms.truncate(0);
+          thisp->pimpl->materials.truncate(0);
+          thisp->pimpl->boundingBoxesMin.truncate(0);
+          thisp->pimpl->boundingBoxesMax.truncate(0);
+          thisp->pimpl->transformMap.clear();
+          thisp->pimpl->materialMap.clear();
+          thisp->pimpl->shapeMap.clear();
+          
+          traverseNodeInit(thisp->sceneroot, thisp->pimpl);
+      }
   }
 }
