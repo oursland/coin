@@ -255,46 +255,87 @@ Currently `SoRenderCommand` is a large struct (~200+ bytes) containing geometry,
 
 **Goal**: Move culling and draw command generation to GPU compute shaders. CPU uploads scene deltas; GPU does visibility + draws.
 
-This phase requires OpenGL 4.3+ (or Vulkan/Metal). Not available on macOS OpenGL (capped at 4.1), so this is a Vulkan/Metal backend feature.
+This phase requires compute shaders and indirect draw, which are not available via macOS OpenGL (capped at 4.1 Core Profile). A new GPU API backend is required.
+
+### Platform Considerations
+
+**The Multi-Draw Indirect (MDI) gap on Metal:**
+
+| Feature | Vulkan (Linux/Win) | D3D12 (Win) | Metal (macOS) |
+|---------|-------------------|-------------|---------------|
+| Compute shaders | Native | Native | Native |
+| Storage buffers | Native | Native | Native |
+| Single indirect draw | Native | Native | Native |
+| Multi-draw indirect | Native | Native | **No native support** |
+
+Metal lacks native MDI. Both wgpu and MoltenVK emulate it via a CPU loop over individual `draw_primitives_indirect` calls — benchmarks show ~5x slower than native MDI on Vulkan/D3D12. Metal does have Indirect Command Buffers (ICBs) for GPU-driven dispatch, but these are Metal-specific and not exposed through cross-platform abstractions.
+
+**Backend options:**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Dawn (WebGPU, C++)** | Single codebase, three platforms; native C++ debugging; strong validation; closest to stable webgpu.h | MDI emulated on Metal; no persistent mapped buffers; no bindless/mesh shaders; heavy build (Chromium deps) |
+| **wgpu-native (WebGPU, C API)** | Single codebase; pre-compiled binaries; lighter than Dawn | MDI emulated on Metal; C API ~2 years behind spec; Rust internals harder to debug from C++ |
+| **Vulkan + MoltenVK** | More control than WebGPU; proven path (Valve/Proton); one Vulkan codebase | Same MDI emulation gap on Metal; MoltenVK translation overhead |
+| **Vulkan (Linux/Win) + native Metal (macOS)** | Best performance everywhere; Metal ICBs for true GPU-driven draws | Two backend implementations to maintain |
+
+**Recommended approach: Material-bucketed indirect draw (avoids MDI entirely)**
+
+Instead of one draw per command via MDI, use compute shaders to compact visible geometry into per-material-bucket index buffers. Each bucket is dispatched with a single `drawIndexedIndirect`. This works identically on all backends:
+
+1. Compute: frustum cull → visibility buffer
+2. Compute: compact visible command indices into per-bucket draw lists (atomic append)
+3. Draw: one `drawIndexedIndirect` per material bucket (typically 10-50 buckets, not thousands of draws)
+
+This sidesteps the MDI gap and is arguably more efficient — fewer draw calls, better GPU occupancy.
 
 ### Tasks
 
-- [ ] **5.1 Design GPU scene buffer layout**
-  - Define SSBO layouts matching Phase 4's SOA arrays:
+- [ ] **5.1 Choose and integrate GPU API backend**
+  - Evaluate Dawn vs wgpu-native vs direct Vulkan+Metal for Coin's build/dependency constraints
+  - Implement `SoRenderBackend` subclass for the chosen API
+  - Must support: compute shaders, storage buffers, indirect draw, atomic operations
+  - Wire into existing `SoRenderManager` backend selection
+  - **Key file**: `src/rendering/SoRenderBackend.h` — abstract interface
+
+- [ ] **5.2 Design GPU scene buffer layout**
+  - Define storage buffer layouts matching Phase 4's SOA arrays:
     - Transform buffer: `mat4 modelMatrices[MAX_COMMANDS]`
     - Material buffer: `MaterialDesc materials[MAX_COMMANDS]`
     - Bounds buffer: `vec3 bboxMin[MAX_COMMANDS], vec3 bboxMax[MAX_COMMANDS]`
-    - Indirect draw buffer: `DrawElementsIndirectCommand draws[MAX_COMMANDS]`
+    - Draw params buffer: `DrawDesc draws[MAX_COMMANDS]` (vertex offset, index count, etc.)
     - Visibility buffer: `uint visible[MAX_COMMANDS]`
-  - Align to `std430` packing rules
+  - Use WGSL `var<storage>` (WebGPU) or `std430` layout (Vulkan) depending on backend choice
 
-- [ ] **5.2 Implement GPU frustum culling compute shader**
-  - Input: bounds SSBO + 6 frustum planes (uniform)
+- [ ] **5.3 Implement GPU frustum culling compute shader**
+  - Input: bounds buffer + 6 frustum planes (uniform)
   - Output: visibility buffer (1/0 per command)
   - Dispatch: `ceil(commandCount / 256)` workgroups, 256 threads each
   - Each thread tests one command's AABB against all 6 frustum planes
 
-- [ ] **5.3 Implement indirect draw command generation**
-  - Compute shader reads visibility buffer, geometry descriptors, and draw parameters
-  - Writes `DrawElementsIndirectCommand` for each visible command
-  - Atomic counter for compacted draw count
-  - Output consumed by `glMultiDrawElementsIndirect()`
+- [ ] **5.4 Implement material-bucketed draw compaction**
+  - Compute shader reads visibility buffer and material IDs
+  - Atomic-appends visible command indices into per-bucket output buffers
+  - Writes one `DrawIndexedIndirectCommand` per bucket with compacted count
+  - Typically 10-50 buckets (one per unique material/state combination)
+  - Avoids MDI entirely — works on Metal, Vulkan, and D3D12 equally
 
-- [ ] **5.4 Implement delta upload**
+- [ ] **5.5 Implement delta upload**
   - Track which commands changed since last frame (from Phase 1's dirty tracking)
-  - Upload only changed entries in transform/material/bounds SSBOs
-  - Use `glBufferSubData` or persistent mapped buffers for partial updates
+  - Upload only changed entries in transform/material/bounds buffers
+  - Use staging buffers with explicit copy (WebGPU) or `vkCmdUpdateBuffer` / persistent mapping (Vulkan)
 
-- [ ] **5.5 Implement GPU-driven ID pick pass**
-  - Same culling compute shader, but write pick IDs instead of visual draws
-  - Or: render visible commands with pick shader in single indirect draw
+- [ ] **5.6 Implement GPU-driven ID pick pass**
+  - Same culling compute shader, but render visible commands with pick shader
+  - Pick shader writes per-fragment command ID + element ID to pick buffer
+  - Single indirect draw per bucket, shared geometry buffers from visual pass
   - Replaces current per-command ID VAO rendering in `SoIDPickBuffer`
 
-- [ ] **5.6 Add Vulkan/Metal backend**
-  - Implement `SoRenderBackend` for Vulkan (or Metal via MoltenVK)
-  - Use descriptor sets / argument buffers for SSBO binding
-  - Compute pipeline for culling, graphics pipeline for rendering
-  - This unlocks the full GPU-driven path on macOS
+- [ ] **5.7 Shader translation / porting**
+  - Port current GLSL 1.20 Blinn-Phong shader to WGSL (if WebGPU) or GLSL 4.50 / SPIR-V (if Vulkan)
+  - Port ID pick shader
+  - Add compute shaders for culling and draw compaction (new)
+  - Consider Naga (WGSL→SPIR-V→MSL→HLSL) for cross-backend shader compilation if using WebGPU
 
 ---
 
@@ -319,7 +360,10 @@ Phase 3 (Notification Batching) — can start in parallel with Phase 2
     ↓
 Phase 4 (SOA Layout) — benefits from Phase 1-3 being stable
     ↓
-Phase 5 (GPU-Driven) — requires Phase 4 SOA + new backend
+Phase 5 (GPU-Driven) — requires Phase 4 SOA
+    ├── 5.1 (Backend choice) gates all other Phase 5 tasks
+    ├── 5.3 (Culling shader) + 5.4 (Draw compaction) are the core compute work
+    └── 5.7 (Shader porting) can start as soon as 5.1 is decided
 ```
 
-Phases 1-3 are where the largest practical gains are. Phase 4 is a code quality / preparation step. Phase 5 is the long-term vision requiring a new GPU API backend.
+Phases 1-3 are where the largest practical gains are. Phase 4 is a code quality / preparation step. Phase 5 is the long-term vision requiring a new GPU API backend — the material-bucketed draw compaction approach avoids the Metal MDI gap and works consistently across all platforms.
