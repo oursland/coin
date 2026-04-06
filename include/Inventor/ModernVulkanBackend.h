@@ -6,6 +6,12 @@
 #include <stdexcept>
 #include <iostream>
 
+#ifdef NDEBUG
+    const bool enableValidationLayers = false;
+#else
+    const bool enableValidationLayers = true;
+#endif
+
 class ModernVulkanBackend {
 public:
     ModernVulkanBackend();
@@ -43,7 +49,12 @@ private:
     void createLogicalDevice();
     void createCommandPool();
 
+    bool checkValidationLayerSupport();
+    void setupDebugMessenger();
+    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+
     VkInstance instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;

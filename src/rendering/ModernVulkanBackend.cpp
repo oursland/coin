@@ -1,4 +1,26 @@
 #include "../../include/Inventor/ModernVulkanBackend.h"
+#include <cstring>
+
+VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
+    auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+    if (func != nullptr) {
+        return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
+    } else {
+        return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+}
+
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
+    auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+    if (func != nullptr) {
+        func(instance, debugMessenger, pAllocator);
+    }
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
+    std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+    return VK_FALSE;
+}
 
 ModernVulkanBackend::ModernVulkanBackend() {
 }
@@ -9,6 +31,7 @@ ModernVulkanBackend::~ModernVulkanBackend() {
 
 void ModernVulkanBackend::initInstance(const std::vector<const char*>& additionalExtensions) {
     createInstance(additionalExtensions);
+    setupDebugMessenger();
 }
 
 void ModernVulkanBackend::initDevice(VkSurfaceKHR surface) {
@@ -37,6 +60,10 @@ void ModernVulkanBackend::cleanup() {
         vkDestroyDevice(device, nullptr);
         device = VK_NULL_HANDLE;
     }
+    if (enableValidationLayers && debugMessenger != VK_NULL_HANDLE) {
+        DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
+        debugMessenger = VK_NULL_HANDLE;
+    }
     if (instance != VK_NULL_HANDLE) {
         vkDestroyInstance(instance, nullptr);
         instance = VK_NULL_HANDLE;
@@ -49,10 +76,18 @@ std::vector<const char*> ModernVulkanBackend::getRequiredExtensions() {
     // Specifically target MoltenVK / Portable subsets required for macOS
     extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     
+    if (enableValidationLayers) {
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+    
     return extensions;
 }
 
 void ModernVulkanBackend::createInstance(const std::vector<const char*>& additionalExtensions) {
+    if (enableValidationLayers && !checkValidationLayerSupport()) {
+        throw std::runtime_error("validation layers requested, but not available!");
+    }
+
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "Coin3D ModernVulkanBackend";
@@ -73,11 +108,65 @@ void ModernVulkanBackend::createInstance(const std::vector<const char*>& additio
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
-    // Layers (e.g. Vulkan validation layers could be added here)
-    createInfo.enabledLayerCount = 0;
+    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+    const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
+    if (enableValidationLayers) {
+        createInfo.enabledLayerCount = 1;
+        createInfo.ppEnabledLayerNames = &validationLayerName;
+
+        populateDebugMessengerCreateInfo(debugCreateInfo);
+        createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
+    } else {
+        createInfo.enabledLayerCount = 0;
+        createInfo.pNext = nullptr;
+    }
 
     if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
         throw std::runtime_error("failed to create vulkan instance!");
+    }
+}
+
+bool ModernVulkanBackend::checkValidationLayerSupport() {
+    uint32_t layerCount;
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+    std::vector<VkLayerProperties> availableLayers(layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+    for (const char* layerName : { "VK_LAYER_KHRONOS_validation" }) {
+        bool layerFound = false;
+
+        for (const auto& layerProperties : availableLayers) {
+            if (strcmp(layerName, layerProperties.layerName) == 0) {
+                layerFound = true;
+                break;
+            }
+        }
+
+        if (!layerFound) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void ModernVulkanBackend::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) {
+    createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    createInfo.pfnUserCallback = debugCallback;
+}
+
+void ModernVulkanBackend::setupDebugMessenger() {
+    if (!enableValidationLayers) return;
+
+    VkDebugUtilsMessengerCreateInfoEXT createInfo;
+    populateDebugMessengerCreateInfo(createInfo);
+
+    if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
+        throw std::runtime_error("failed to set up debug messenger!");
     }
 }
 

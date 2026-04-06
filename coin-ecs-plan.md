@@ -144,6 +144,11 @@ flowchart TD
 - **Goal:** Formalize the new pipeline executables by integrating them directly into the CMake build tree, allowing standard CI/CD and developer workflows to invoke the functional validations dynamically using conventional testing patterns.
 - Implement conditional inclusion of testing targets mapping GLFW and Vulkan components seamlessly inside `test-code/CMakeLists.txt`.
 
+#### Phase 8: Vulkan Validation Layers
+- **Goal:** Prevent silent crashes, undefined graphical behavior, and enforce standardized Vulkan synchronization across platforms.
+- Inject `VK_LAYER_KHRONOS_validation` safely alongside a managed `VkDebugUtilsMessengerEXT` parsing debug outputs to standardized standard error queues.
+- Ensure the layers are bypassed explicitly inside Production configurations (`#ifdef NDEBUG`) protecting performance regressions.
+
 ## Build and Test Instructions
 
 To validate the modern GPU-driven pipeline and execute the dynamic UI test locally, follow these steps natively from the macOS terminal:
