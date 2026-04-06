@@ -26,7 +26,7 @@ The goal of this phase is to execute the completed compute culling and multi-dra
 - [x] Bind dynamic data updating the `CameraData` Unified Storage Buffer prior to issuing the Dispatch.
 
 ## 5. Master Render Loop & Frame Pacer
-- [ ] Produce `VkSemaphore` tracking `imageAvailable` and `renderFinished`.
-- [ ] Wrap frame execution within a blocking `VkFence`.
-- [ ] Implement `vkAcquireNextImageKHR` followed by `vkQueueSubmit` (triggering Culling -> MDI rendering seq).
-- [ ] Request standard `vkQueuePresentKHR`.
+- [x] Produce `VkSemaphore` tracking `imageAvailable` and `renderFinished`.
+- [x] Wrap frame execution within a blocking `VkFence`.
+- [x] Implement standard `vkAcquireNextImageKHR` followed by sequential `vkQueueSubmit`.
+- [x] Request standard `vkQueuePresentKHR`.

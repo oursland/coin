@@ -8,6 +8,7 @@
 
 // Frustum planes input mapping matching std140 CameraData UBO
 struct CameraData {
+    float viewProj[16];
     float frustumPlanes[6][4]; // left, right, bottom, top, near, far
     uint32_t numElements;
     uint32_t padding[3];
