@@ -72,6 +72,12 @@ void VulkanStateManager::freeStorageBuffers() {
         boundingBoxBuffer = VK_NULL_HANDLE;
     }
     
+    if (visibilityBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, visibilityBuffer, nullptr);
+        vkFreeMemory(device, visibilityMemory, nullptr);
+        visibilityBuffer = VK_NULL_HANDLE;
+    }
+    
     currentCapacity = 0;
 }
 

@@ -17,6 +17,7 @@ set(COIN_RENDERING_FILES
 	CoinOffscreenGLCanvas.cpp
 	ModernVulkanBackend.cpp
 	VulkanStateManager.cpp
+	VulkanCullingSystem.cpp
 )
 
 # Files excluded from public API documentation, included in complete documentation.

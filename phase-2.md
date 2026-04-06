@@ -22,12 +22,12 @@ This document contains the detailed breakdown of tasks for Phase 2 of the Coin3D
 - [x] Track "dirty" ranges inside the Shadow ECS to avoid re-uploading unchanged memory arrays (Optional Optimization).
 
 ## 4. Vulkan Compute Shader: View Frustum Culling
-- [ ] Write the GLSL Compute Shader file (`culling_compute.glsl`) and compile it to SPIR-V using `glslangValidator`.
-- [ ] Define the inputs inside the Compute Shader:
-  - [ ] `layout(std430, binding = 0) readonly buffer BoundingBoxes`
-  - [ ] `layout(std140, binding = 1) uniform CameraContext` (holding 6 view-frustum planes).
-- [ ] Create Vulkan Descriptor Sets tying the Storage Buffers and Uniform Buffers to the compute pipeline bindings.
-- [ ] Implement the box/frustum intersection algorithm checking all 8 corners across the 6 planes directly on the GPU.
+- [x] Write the GLSL Compute Shader file (`culling_compute.glsl`) and compile it to SPIR-V using `glslangValidator`.
+- [x] Define the inputs inside the Compute Shader:
+  - [x] `layout(std430, binding = 0) readonly buffer BoundingBoxes`
+  - [x] `layout(std140, binding = 1) uniform CameraContext` (holding 6 view-frustum planes).
+- [x] Create Vulkan Descriptor Sets tying the Storage Buffers and Uniform Buffers to the compute pipeline bindings.
+- [x] Implement the box/frustum intersection algorithm checking all 8 corners across the 6 planes directly on the GPU.
 
 ## 5. Indirect Buffer Output
 - [ ] Define the Indirect Draw buffer layout struct on the GPU:

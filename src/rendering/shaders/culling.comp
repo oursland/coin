@@ -1,0 +1,89 @@
+#version 450 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std140) uniform CameraData {
+    vec4 frustumPlanes[6]; // xyz: normal, w: distance
+    uint numElements;
+} camera;
+
+struct Transform {
+    mat4 modelMatrix;
+};
+
+struct BoundingBox {
+    vec4 minBounds; // w unused
+    vec4 maxBounds; // w unused
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer Transforms {
+    Transform transforms[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer BBoxes {
+    BoundingBox bboxes[];
+};
+
+layout(std430, set = 0, binding = 3) writeonly buffer Visibility {
+    uint visibility[];
+};
+
+// Transform local bounding box to world space and test against frustum planes
+bool isVisible(uint index) {
+    vec3 minB = bboxes[index].minBounds.xyz;
+    vec3 maxB = bboxes[index].maxBounds.xyz;
+    mat4 model = transforms[index].modelMatrix;
+
+    // Center and half-extents
+    vec3 center = (minB + maxB) * 0.5;
+    vec3 extents = (maxB - minB) * 0.5;
+
+    // Transform center to world space
+    vec3 worldCenter = (model * vec4(center, 1.0)).xyz;
+
+    // Scale extents using model matrix basis vectors
+    vec3 right = vec3(model[0][0], model[0][1], model[0][2]);
+    vec3 up = vec3(model[1][0], model[1][1], model[1][2]);
+    vec3 forward = vec3(model[2][0], model[2][1], model[2][2]);
+    
+    // We compute the projected radius (extents) along the frustum normal
+    for (int i = 0; i < 6; ++i) {
+        vec3 normal = camera.frustumPlanes[i].xyz;
+        float d = camera.frustumPlanes[i].w;
+
+        // Effective projected radius
+        float r = extents.x * abs(dot(normal, right)) +
+                  extents.y * abs(dot(normal, up)) +
+                  extents.z * abs(dot(normal, forward));
+
+        // Test world center against plane
+        float distanceToPlane = dot(normal, worldCenter) + d;
+
+        // If outside the plane by more than its radius, it's culled
+        if (distanceToPlane < -r) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+void main() {
+    uint gID = gl_GlobalInvocationID.x;
+    
+    if (gID >= camera.numElements) {
+        return;
+    }
+    
+    // Default to visible if bounding box is inverted/invalid (e.g. uninitialized geometry)
+    if (bboxes[gID].minBounds.x > bboxes[gID].maxBounds.x) {
+        visibility[gID] = 1;
+        return;
+    }
+
+    if (isVisible(gID)) {
+        visibility[gID] = 1;
+    } else {
+        visibility[gID] = 0;
+    }
+}

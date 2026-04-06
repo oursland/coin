@@ -33,11 +33,12 @@ public:
     void freeStagingBuffers();
 
     class PersistentSceneManager* sceneManager;
-    void upload(const class PersistentSceneManager* sceneManager);
+    void upload(class PersistentSceneManager* sceneManager);
 
     VkBuffer getTransformBuffer() const { return transformBuffer; }
     VkBuffer getMaterialBuffer() const { return materialBuffer; }
     VkBuffer getBoundingBoxBuffer() const { return boundingBoxBuffer; }
+    VkBuffer getVisibilityBuffer() const { return visibilityBuffer; }
 
 private:
     ModernVulkanBackend* vkBackend;
@@ -50,6 +51,9 @@ private:
 
     VkBuffer boundingBoxBuffer = VK_NULL_HANDLE;
     VkDeviceMemory boundingBoxMemory = VK_NULL_HANDLE;
+
+    VkBuffer visibilityBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory visibilityMemory = VK_NULL_HANDLE;
 
     // Staging buffers mapping CPU-visible memory
     VkBuffer stagingTransformBuffer = VK_NULL_HANDLE;
