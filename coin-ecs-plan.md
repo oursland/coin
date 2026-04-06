@@ -87,7 +87,7 @@ flowchart TD
         Tree[("Flattened Index Topology Structure")]
     end
 
-    subgraph GPUStorage [GPU Persisted Buffers (Vulkan)]
+    subgraph GPUStorage [GPU Persisted Buffers - Vulkan]
         SOA -- Async Upload --> SSBO[("Storage Buffer")]
         GeoCache[("Global Unified Index/Vertex Buffer")]
     end

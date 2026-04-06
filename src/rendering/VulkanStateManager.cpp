@@ -14,9 +14,11 @@ VulkanStateManager::~VulkanStateManager() {
 void VulkanStateManager::allocateStorageBuffers(size_t numElements) {
     if (numElements == 0 || numElements <= currentCapacity) return;
 
+    std::cout << "DEBUG: Inside allocateStorageBuffers. Freeing storage..." << std::endl;
     // Free existing buffers if we're expanding array topology
     freeStorageBuffers();
 
+    std::cout << "DEBUG: allocating transforms" << std::endl;
     currentCapacity = numElements;
 
     // We store arrays directly on the GPU as Storage Buffers (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
@@ -76,6 +78,48 @@ void VulkanStateManager::allocateStorageBuffers(size_t numElements) {
         drawCountBuffer,
         drawCountMemory
     );
+
+    // Provide 8 vertices (3 floats each) and 36 indices for a complete unit cube
+    VkDeviceSize vertSize = sizeof(float) * 3 * 8;
+    if (globalVertexBuffer == VK_NULL_HANDLE) {
+        // We make these HOST_VISIBLE to avoid staging buffer complexity for static shape arrays in the benchmark
+        vkBackend->createBuffer(
+            vertSize,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            globalVertexBuffer,
+            globalVertexMemory
+        );
+
+        float cubeVertices[] = {
+            -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
+            -0.5f, -0.5f,  0.5f, 0.5f, -0.5f,  0.5f, 0.5f, 0.5f,  0.5f, -0.5f, 0.5f,  0.5f
+        };
+        void* data = nullptr;
+        if (vkMapMemory(vkBackend->getDevice(), globalVertexMemory, 0, vertSize, 0, &data) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to map global vertex memory!");
+        }
+        memcpy(data, cubeVertices, (size_t)vertSize);
+        vkUnmapMemory(vkBackend->getDevice(), globalVertexMemory);
+
+        VkDeviceSize intSize = sizeof(uint32_t) * 36;
+        vkBackend->createBuffer(
+            intSize,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            globalIndexBuffer,
+            globalIndexMemory
+        );
+        
+        uint32_t cubeIndices[] = {
+            0,1,2, 2,3,0, 1,5,6, 6,2,1, 7,6,5, 5,4,7, 4,0,3, 3,7,4, 4,5,1, 1,0,4, 3,2,6, 6,7,3
+        };
+        if (vkMapMemory(vkBackend->getDevice(), globalIndexMemory, 0, intSize, 0, &data) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to map global index memory!");
+        }
+        memcpy(data, cubeIndices, (size_t)intSize);
+        vkUnmapMemory(vkBackend->getDevice(), globalIndexMemory);
+    }
 }
 
 void VulkanStateManager::freeStorageBuffers() {
@@ -116,6 +160,18 @@ void VulkanStateManager::freeStorageBuffers() {
         vkDestroyBuffer(device, drawCountBuffer, nullptr);
         vkFreeMemory(device, drawCountMemory, nullptr);
         drawCountBuffer = VK_NULL_HANDLE;
+    }
+
+    if (globalVertexBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, globalVertexBuffer, nullptr);
+        vkFreeMemory(device, globalVertexMemory, nullptr);
+        globalVertexBuffer = VK_NULL_HANDLE;
+    }
+
+    if (globalIndexBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, globalIndexBuffer, nullptr);
+        vkFreeMemory(device, globalIndexMemory, nullptr);
+        globalIndexBuffer = VK_NULL_HANDLE;
     }
     
     currentCapacity = 0;
@@ -187,18 +243,22 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
 
     if (maxElements == 0) return;
 
+    std::cout << "DEBUG: allocateStorageBuffers" << std::endl;
     allocateStorageBuffers(maxElements);
+    std::cout << "DEBUG: allocateStagingBuffers" << std::endl;
     allocateStagingBuffers(maxElements);
 
     VkDevice device = vkBackend->getDevice();
     VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
 
     size_t tMin, tMax;
+    std::cout << "DEBUG: getTransformDirtyRange" << std::endl;
     sceneManager->getTransformDirtyRange(tMin, tMax);
     
     // 1. Map and Copy Transforms (Targeted Range)
     if (numTransforms > 0 && tMin <= tMax && tMax < numTransforms) {
         size_t count = tMax - tMin + 1;
+        std::cout << "DEBUG: Map transforms (count: " << count << ")" << std::endl;
         const void* transformData = sceneManager->getTransformData();
         void* mappedData;
         
@@ -219,6 +279,7 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
 
     // 2. Map and Copy Materials (Naive for now)
     if (numMaterials > 0) { // Should similarly implement material dirty ranges if implemented
+        std::cout << "DEBUG: Map materials" << std::endl;
         const void* materialData = sceneManager->getMaterialData();
         void* mappedData;
         vkMapMemory(device, stagingMaterialMemory, 0, sizeof(MaterialData) * numMaterials, 0, &mappedData);
@@ -235,6 +296,7 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
     // 3. Map and Copy Bounding Boxes (Naive for now)
     size_t numBBoxes = sceneManager->getNumBoundingBoxes();
     if (numBBoxes > 0) {
+        std::cout << "DEBUG: Map bounding boxes" << std::endl;
         const void* bboxData = sceneManager->getBoundingBoxData();
         void* mappedData;
         vkMapMemory(device, stagingBoundingBoxMemory, 0, sizeof(BoundingBoxData) * numBBoxes, 0, &mappedData);

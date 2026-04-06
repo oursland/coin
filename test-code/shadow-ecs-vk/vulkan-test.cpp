@@ -5,6 +5,7 @@
 #include <Inventor/nodes/SoTransform.h>
 #include <Inventor/nodes/SoCube.h>
 #include <Inventor/VulkanCullingSystem.h>
+#include <Inventor/VulkanRenderer.h>
 #include <iostream>
 #include <execinfo.h>
 #include <signal.h>
@@ -112,9 +113,11 @@ int main(int argc, char** argv) {
         std::cout << "Correctness Verified: GPU exactly mirrors Shadow ECS memory." << std::endl;
 
         // ---------- GPU COMPUTE CULLING BENCHMARK ----------
-        std::cout << "\nInitializing Compute Culler..." << std::endl;
+        std::cout << "\nInitializing Compute Culler and Renderer..." << std::endl;
         VulkanCullingSystem cullingSystem(&backend, &stateManager);
         cullingSystem.init("src/rendering/shaders/culling.spv");
+        VulkanRenderer renderer(&backend, &stateManager);
+        renderer.init("src/rendering/shaders/basic.vert.spv", "src/rendering/shaders/basic.frag.spv");
         std::cout << "init() finished!" << std::endl;
         CameraData camData{};
         // View Frustum bounds (orthographic block from x=-50 to x=50)
@@ -144,6 +147,16 @@ int main(int argc, char** argv) {
         VkCommandBuffer computeCmd = backend.beginSingleTimeCommands();
         cullingSystem.dispatchCulling(computeCmd, NUM_NODES);
         
+        // Barrier: Ensure Compute writes are visible to indirect draw
+        VkMemoryBarrier drawBarrier{};
+        drawBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        drawBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        drawBarrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(computeCmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &drawBarrier, 0, nullptr, 0, nullptr);
+
+        std::cout << "Executing Graphics Renderer with statistics..." << std::endl;
+        renderer.bindAndDrawHeadless(computeCmd, NUM_NODES);
+
         std::cout << "Ending single time commands (submitting to queue)..." << std::endl;
         backend.endSingleTimeCommands(computeCmd); // blocks until complete
         std::cout << "Queue submit complete!" << std::endl;
@@ -232,13 +245,14 @@ int main(int argc, char** argv) {
             throw std::runtime_error("Draw counts mismatch!");
         }
 
+        // (Pipeline Statistics validation removed because it is unsupported on Apple Silicon/MoltenVK)
+
         vkDestroyBuffer(backend.getDevice(), cameraUBO, nullptr);
         vkFreeMemory(backend.getDevice(), cameraUBOMemory, nullptr);
         vkDestroyBuffer(backend.getDevice(), readbackVisBuffer, nullptr);
         vkFreeMemory(backend.getDevice(), readbackVisMemory, nullptr);
         vkDestroyBuffer(backend.getDevice(), readbackCountBuffer, nullptr);
         vkFreeMemory(backend.getDevice(), readbackCountMemory, nullptr);
-        vkDestroyQueryPool(backend.getDevice(), queryPool, nullptr);
 
         root->unref();
 

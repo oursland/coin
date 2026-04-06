@@ -43,6 +43,8 @@ public:
     VkBuffer getVisibilityBuffer() const { return visibilityBuffer; }
     VkBuffer getIndirectDrawBuffer() const { return indirectDrawBuffer; }
     VkBuffer getDrawCountBuffer() const { return drawCountBuffer; }
+    VkBuffer getGlobalVertexBuffer() const { return globalVertexBuffer; }
+    VkBuffer getGlobalIndexBuffer() const { return globalIndexBuffer; }
 
 private:
     ModernVulkanBackend* vkBackend;
@@ -64,6 +66,12 @@ private:
 
     VkBuffer drawCountBuffer = VK_NULL_HANDLE;
     VkDeviceMemory drawCountMemory = VK_NULL_HANDLE;
+
+    VkBuffer globalVertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory globalVertexMemory = VK_NULL_HANDLE;
+
+    VkBuffer globalIndexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory globalIndexMemory = VK_NULL_HANDLE;
 
     // Staging buffers mapping CPU-visible memory
     VkBuffer stagingTransformBuffer = VK_NULL_HANDLE;

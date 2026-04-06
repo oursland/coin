@@ -18,6 +18,7 @@ set(COIN_RENDERING_FILES
 	ModernVulkanBackend.cpp
 	VulkanStateManager.cpp
 	VulkanCullingSystem.cpp
+	VulkanRenderer.cpp
 )
 
 # Files excluded from public API documentation, included in complete documentation.
