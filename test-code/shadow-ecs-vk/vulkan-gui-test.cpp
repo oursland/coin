@@ -7,11 +7,14 @@
 #include <Inventor/PersistentSceneManager.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoTransform.h>
+#include <Inventor/nodes/SoMaterial.h>
+#include <Inventor/nodes/SoDirectionalLight.h>
 #include <Inventor/nodes/SoCube.h>
 #include <Inventor/SoDB.h>
 #include <iostream>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 
 // CameraData is defined via VulkanCullingSystem.h
 
@@ -198,14 +201,37 @@ int main() {
     PersistentSceneManager sceneManager;
     SoSeparator* root = new SoSeparator;
     root->ref();
+
+    SoDirectionalLight* globalLight = new SoDirectionalLight;
+    globalLight->direction.setValue(-1.0f, -1.0f, -1.0f);
+    globalLight->color.setValue(1.0f, 1.0f, 0.9f);
+    globalLight->intensity.setValue(1.2f);
+    root->addChild(globalLight);
+    
+    std::vector<SoMaterial*> dynamicMaterials;
+
     int size = 20;
     for (int x = -size; x < size; x++) {
         for (int y = -size; y < size; y++) {
             SoSeparator* sep = new SoSeparator;
             SoTransform* t = new SoTransform;
             t->translation.setValue(x * 2.5f, 0, y * 2.5f);
+            
+            SoMaterial* m = new SoMaterial;
+            float r = (rand() % 100) / 100.0f;
+            float g = (rand() % 100) / 100.0f;
+            float b = (rand() % 100) / 100.0f;
+            m->diffuseColor.setValue(r, g, b);
+            m->specularColor.setValue(0.5f, 0.5f, 0.5f);
+            m->shininess.setValue(0.5f);
+            
+            if (x == 0 && y == 0) {
+                dynamicMaterials.push_back(m);
+            }
+
             SoCube* c = new SoCube;
             sep->addChild(t);
+            sep->addChild(m);
             sep->addChild(c);
             root->addChild(sep);
         }
@@ -269,6 +295,16 @@ int main() {
         vkMapMemory(backend.getDevice(), cameraUBOMemory, 0, sizeof(CameraData), 0, &mapped);
         memcpy(mapped, &camData, sizeof(CameraData));
         vkUnmapMemory(backend.getDevice(), cameraUBOMemory);
+
+        // Process dynamic material updates
+        if (!dynamicMaterials.empty()) {
+            float osc = (sin(currentFrame * 3.0) + 1.0) / 2.0;
+            dynamicMaterials[0]->diffuseColor.setValue(osc, 1.0f - osc, 0.5f);
+            dynamicMaterials[0]->emissiveColor.setValue(osc * 0.5f, 0.0f, 0.0f);
+        }
+
+        // Propagate tracked dirty GPU states over PCIe to SSBOs mapping
+        stateManager.upload(&sceneManager);
 
         // 1. Frame Pacing: Wait for previous frame dispatch to release fence
         vkWaitForFences(backend.getDevice(), 1, &inFlightFence, VK_TRUE, UINT64_MAX);

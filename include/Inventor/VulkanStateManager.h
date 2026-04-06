@@ -4,16 +4,12 @@
 #include <Inventor/ModernVulkanBackend.h>
 #include <vulkan/vulkan.h>
 #include <vector>
-#include <cstddef>
+#include <Inventor/PersistentSceneManager.h>
 
 // Note: Using arrays of 4 floats to guarantee strict std430 16-byte alignment
 // to avoid spir-v layout misalignment when reading vec3 / vec4.
 struct TransformData {
     float matrix[16];
-};
-
-struct MaterialData {
-    float color[4];
 };
 
 struct BoundingBoxData {
@@ -39,6 +35,8 @@ public:
 
     VkBuffer getTransformBuffer() const { return transformBuffer; }
     VkBuffer getMaterialBuffer() const { return materialBuffer; }
+    VkBuffer getShapeMaterialMapBuffer() const { return shapeMaterialMapBuffer; }
+    VkBuffer getLightUBO() const { return lightUBO; }
     VkBuffer getBoundingBoxBuffer() const { return boundingBoxBuffer; }
     VkBuffer getVisibilityBuffer() const { return visibilityBuffer; }
     VkBuffer getIndirectDrawBuffer() const { return indirectDrawBuffer; }
@@ -54,6 +52,12 @@ private:
 
     VkBuffer materialBuffer = VK_NULL_HANDLE;
     VkDeviceMemory materialMemory = VK_NULL_HANDLE;
+
+    VkBuffer shapeMaterialMapBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory shapeMaterialMapMemory = VK_NULL_HANDLE;
+
+    VkBuffer lightUBO = VK_NULL_HANDLE;
+    VkDeviceMemory lightUBOMemory = VK_NULL_HANDLE;
 
     VkBuffer boundingBoxBuffer = VK_NULL_HANDLE;
     VkDeviceMemory boundingBoxMemory = VK_NULL_HANDLE;
@@ -79,6 +83,12 @@ private:
 
     VkBuffer stagingMaterialBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingMaterialMemory = VK_NULL_HANDLE;
+
+    VkBuffer stagingShapeMaterialMapBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingShapeMaterialMapMemory = VK_NULL_HANDLE;
+
+    VkBuffer stagingLightUBO = VK_NULL_HANDLE;
+    VkDeviceMemory stagingLightUBOMemory = VK_NULL_HANDLE;
 
     VkBuffer stagingBoundingBoxBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingBoundingBoxMemory = VK_NULL_HANDLE;

@@ -109,11 +109,23 @@ void VulkanRenderer::createDescriptorSetLayout() {
     cameraBinding.descriptorCount = 1;
     cameraBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-    VkDescriptorSetLayoutBinding bindings[] = {transformBinding, materialBinding, cameraBinding};
+    VkDescriptorSetLayoutBinding shapeMapBinding{};
+    shapeMapBinding.binding = 3;
+    shapeMapBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    shapeMapBinding.descriptorCount = 1;
+    shapeMapBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutBinding lightBinding{};
+    lightBinding.binding = 4;
+    lightBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    lightBinding.descriptorCount = 1;
+    lightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutBinding bindings[] = {transformBinding, materialBinding, cameraBinding, shapeMapBinding, lightBinding};
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 3;
+    layoutInfo.bindingCount = 5;
     layoutInfo.pBindings = bindings;
 
     if (vkCreateDescriptorSetLayout(backend->getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
@@ -276,18 +288,18 @@ void VulkanRenderer::createGraphicsPipeline(const std::string& vertPath, const s
 
 
 void VulkanRenderer::allocateDescriptorSet(VkBuffer cameraUBO) {
-    VkDescriptorPoolSize poolSizes[3]{};
+    std::vector<VkDescriptorPoolSize> poolSizes(4);
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[0].descriptorCount = 1;
+    poolSizes[0].descriptorCount = 1; // transform
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 1;
+    poolSizes[1].descriptorCount = 3; // material, shapeMap, lights
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[2].descriptorCount = 1;
+    poolSizes[2].descriptorCount = 1; // camera
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 3;
-    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
     poolInfo.maxSets = 1;
 
     if (vkCreateDescriptorPool(backend->getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
@@ -319,33 +331,73 @@ void VulkanRenderer::allocateDescriptorSet(VkBuffer cameraUBO) {
     cameraInfo.offset = 0;
     cameraInfo.range = VK_WHOLE_SIZE;
 
-    VkWriteDescriptorSet descriptorWrites[3]{};
+    VkDescriptorBufferInfo shapeMapInfo{};
+    shapeMapInfo.buffer = stateManager->getShapeMaterialMapBuffer();
+    shapeMapInfo.offset = 0;
+    shapeMapInfo.range = VK_WHOLE_SIZE;
 
-    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[0].dstSet = descriptorSet;
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].pBufferInfo = &transformInfo;
+    VkDescriptorBufferInfo lightInfo{};
+    lightInfo.buffer = stateManager->getLightUBO();
+    lightInfo.offset = 0;
+    lightInfo.range = VK_WHOLE_SIZE;
 
-    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[1].dstSet = descriptorSet;
-    descriptorWrites[1].dstBinding = 1;
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].pBufferInfo = &materialInfo;
+    std::vector<VkWriteDescriptorSet> descriptorWrites;
 
-    descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[2].dstSet = descriptorSet;
-    descriptorWrites[2].dstBinding = 2;
-    descriptorWrites[2].dstArrayElement = 0;
-    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptorWrites[2].descriptorCount = 1;
-    descriptorWrites[2].pBufferInfo = &cameraInfo;
+    VkWriteDescriptorSet transformWrite{};
+    transformWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    transformWrite.dstSet = descriptorSet;
+    transformWrite.dstBinding = 0;
+    transformWrite.dstArrayElement = 0;
+    transformWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    transformWrite.descriptorCount = 1;
+    transformWrite.pBufferInfo = &transformInfo;
+    descriptorWrites.push_back(transformWrite);
 
-    vkUpdateDescriptorSets(backend->getDevice(), 3, descriptorWrites, 0, nullptr);
+    VkWriteDescriptorSet materialWrite{};
+    materialWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    materialWrite.dstSet = descriptorSet;
+    materialWrite.dstBinding = 1;
+    materialWrite.dstArrayElement = 0;
+    materialWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    materialWrite.descriptorCount = 1;
+    materialWrite.pBufferInfo = &materialInfo;
+    descriptorWrites.push_back(materialWrite);
+
+    VkWriteDescriptorSet cameraWrite{};
+    cameraWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    cameraWrite.dstSet = descriptorSet;
+    cameraWrite.dstBinding = 2;
+    cameraWrite.dstArrayElement = 0;
+    cameraWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    cameraWrite.descriptorCount = 1;
+    cameraWrite.pBufferInfo = &cameraInfo;
+    descriptorWrites.push_back(cameraWrite);
+
+    if (shapeMapInfo.buffer != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet shapeMapWrite{};
+        shapeMapWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        shapeMapWrite.dstSet = descriptorSet;
+        shapeMapWrite.dstBinding = 3;
+        shapeMapWrite.dstArrayElement = 0;
+        shapeMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        shapeMapWrite.descriptorCount = 1;
+        shapeMapWrite.pBufferInfo = &shapeMapInfo;
+        descriptorWrites.push_back(shapeMapWrite);
+    }
+    
+    if (lightInfo.buffer != VK_NULL_HANDLE) {
+        VkWriteDescriptorSet lightWrite{};
+        lightWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        lightWrite.dstSet = descriptorSet;
+        lightWrite.dstBinding = 4;
+        lightWrite.dstArrayElement = 0;
+        lightWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        lightWrite.descriptorCount = 1;
+        lightWrite.pBufferInfo = &lightInfo;
+        descriptorWrites.push_back(lightWrite);
+    }
+
+    vkUpdateDescriptorSets(backend->getDevice(), static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 }
 
 void VulkanRenderer::bindAndDraw(VkCommandBuffer cmdBuffer, uint32_t framebufferIndex, uint32_t maxDrawCount) {

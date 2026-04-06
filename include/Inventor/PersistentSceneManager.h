@@ -7,6 +7,18 @@ class SoNode;
 class SoNodeSensor;
 class SoSensor;
 
+struct MaterialData {
+    float diffuse[4];
+    float specular[4];
+    float emissive[4];
+};
+
+struct LightData {
+    float direction[4];   // xyz: dir, w: type (0=directional, 1=point)
+    float position[4];    // xyz: pos, w: intensity
+    float color[4];       // xyz: color, w: on/off flag
+};
+
 class PersistentSceneManager {
 public:
   PersistentSceneManager(void);
@@ -22,6 +34,12 @@ public:
 
   size_t getNumMaterials() const;
   const void* getMaterialData() const;
+
+  size_t getNumShapeMaterialIndices() const;
+  const uint32_t* getShapeMaterialIndices() const;
+
+  size_t getNumLights() const;
+  const void* getLightData() const;
 
   size_t getNumBoundingBoxes() const;
   const void* getBoundingBoxData() const;

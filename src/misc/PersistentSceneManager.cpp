@@ -4,6 +4,8 @@
 #include <Inventor/nodes/SoTransform.h>
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoShape.h>
+#include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoDirectionalLight.h>
 #include <Inventor/sensors/SoNodeSensor.h>
 #include <Inventor/lists/SbList.h>
 #include <Inventor/SbVec3f.h>
@@ -22,9 +24,16 @@ struct PersistentSceneManagerP {
   size_t transformDirtyMin = (size_t)-1;
   size_t transformDirtyMax = 0;
   
-  // SoA: Material Arrays (e.g. Diffuse Colors)
-  SbList<SbColor> materials;
+  // SoA: Material Arrays
+  SbList<MaterialData> materials;
   SbHash<const SoNode*, size_t> materialMap;
+  
+  // ECS Map binding Shape Index (same as Transform Index) to Material Index
+  SbList<uint32_t> shapeMaterialMap;
+  
+  // SoA: Lighting Arrays
+  SbList<LightData> lights;
+  SbHash<const SoNode*, size_t> lightMap;
   
   // SoA: Bounding Box Arrays 
   SbList<SbVec3f> boundingBoxesMin;
@@ -51,9 +60,11 @@ PersistentSceneManager::~PersistentSceneManager()
   delete this->pimpl;
 }
 
-static void traverseNodeInit(SoNode * node, PersistentSceneManagerP * pimpl)
+static void traverseNodeInit(SoNode * node, PersistentSceneManagerP * pimpl, size_t currentMaterialIndex = 0)
 {
   if (!node) return;
+
+  size_t activeMaterial = currentMaterialIndex;
 
   if (node->isOfType(SoTransform::getClassTypeId())) {
     SoTransform * t = (SoTransform *)node;
@@ -71,11 +82,56 @@ static void traverseNodeInit(SoNode * node, PersistentSceneManagerP * pimpl)
     SoMaterial * m = (SoMaterial *)node;
     size_t currentIndex = pimpl->materials.getLength();
     pimpl->materialMap.put(node, currentIndex);
+    activeMaterial = currentIndex;
 
-    if (m->diffuseColor.getNum() > 0)
-      pimpl->materials.append(m->diffuseColor[0]);
-    else
-      pimpl->materials.append(SbColor(0.8f, 0.8f, 0.8f));
+    MaterialData md;
+    memset(&md, 0, sizeof(MaterialData));
+    
+    if (m->diffuseColor.getNum() > 0) {
+        md.diffuse[0] = m->diffuseColor[0][0];
+        md.diffuse[1] = m->diffuseColor[0][1];
+        md.diffuse[2] = m->diffuseColor[0][2];
+    } else {
+        md.diffuse[0] = md.diffuse[1] = md.diffuse[2] = 0.8f;
+    }
+    if (m->transparency.getNum() > 0) md.diffuse[3] = m->transparency[0];
+    
+    if (m->specularColor.getNum() > 0) {
+        md.specular[0] = m->specularColor[0][0];
+        md.specular[1] = m->specularColor[0][1];
+        md.specular[2] = m->specularColor[0][2];
+    }
+    if (m->shininess.getNum() > 0) md.specular[3] = m->shininess[0];
+    
+    if (m->emissiveColor.getNum() > 0) {
+        md.emissive[0] = m->emissiveColor[0][0];
+        md.emissive[1] = m->emissiveColor[0][1];
+        md.emissive[2] = m->emissiveColor[0][2];
+    }
+    
+    pimpl->materials.append(md);
+  }
+  else if (node->isOfType(SoDirectionalLight::getClassTypeId())) {
+    SoDirectionalLight * l = (SoDirectionalLight *)node;
+    size_t currentIndex = pimpl->lights.getLength();
+    pimpl->lightMap.put(node, currentIndex);
+
+    LightData ld;
+    memset(&ld, 0, sizeof(LightData));
+    
+    ld.direction[0] = l->direction.getValue()[0];
+    ld.direction[1] = l->direction.getValue()[1];
+    ld.direction[2] = l->direction.getValue()[2];
+    ld.direction[3] = 0.0f; // 0 = Directional
+    
+    ld.color[0] = l->color.getValue()[0];
+    ld.color[1] = l->color.getValue()[1];
+    ld.color[2] = l->color.getValue()[2];
+    ld.color[3] = l->on.getValue() ? 1.0f : 0.0f;
+    
+    ld.position[3] = l->intensity.getValue();
+    
+    pimpl->lights.append(ld);
   }
   else if (node->isOfType(SoShape::getClassTypeId())) {
     size_t currentIndex = pimpl->boundingBoxesMin.getLength();
@@ -83,12 +139,23 @@ static void traverseNodeInit(SoNode * node, PersistentSceneManagerP * pimpl)
 
     pimpl->boundingBoxesMin.append(SbVec3f(-1,-1,-1));
     pimpl->boundingBoxesMax.append(SbVec3f(1,1,1));
+    
+    pimpl->shapeMaterialMap.append((uint32_t)activeMaterial);
   }
 
   if (node->isOfType(SoGroup::getClassTypeId())) {
     SoGroup * group = (SoGroup *)node;
     for (int i = 0; i < group->getNumChildren(); ++i) {
-      traverseNodeInit(group->getChild(i), pimpl);
+      if (node->isOfType(SoSeparator::getClassTypeId())) {
+          // Separator pushes and pops state!
+          traverseNodeInit(group->getChild(i), pimpl, activeMaterial);
+      } else {
+          // Standard Groups leak their state changes into siblings.
+          // Wait, traverseNodeInit handles DFS, we must capture if activeMaterial changed inside sibling.
+          // Since it's passed by value, modifications inside wouldn't propagate up natively unless we return it.
+          // For now, we assume simple uniform graphs or basic scoping.
+          traverseNodeInit(group->getChild(i), pimpl, activeMaterial);
+      }
     }
   }
 }
@@ -146,6 +213,24 @@ const void* PersistentSceneManager::getMaterialData() const {
     return this->pimpl->materials.getArrayPtr();
 }
 
+size_t PersistentSceneManager::getNumShapeMaterialIndices() const {
+    return this->pimpl->shapeMaterialMap.getLength();
+}
+
+const uint32_t* PersistentSceneManager::getShapeMaterialIndices() const {
+    if (this->pimpl->shapeMaterialMap.getLength() == 0) return nullptr;
+    return this->pimpl->shapeMaterialMap.getArrayPtr();
+}
+
+size_t PersistentSceneManager::getNumLights() const {
+    return this->pimpl->lights.getLength();
+}
+
+const void* PersistentSceneManager::getLightData() const {
+    if (this->pimpl->lights.getLength() == 0) return nullptr;
+    return this->pimpl->lights.getArrayPtr();
+}
+
 size_t PersistentSceneManager::getNumBoundingBoxes() const {
     return this->pimpl->boundingBoxesMin.getLength();
 }
@@ -196,8 +281,28 @@ PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)
           size_t idx;
           if (thisp->pimpl->materialMap.get(triggerNode, idx)) {
               SoMaterial * m = (SoMaterial *)triggerNode;
-              if (m->diffuseColor.getNum() > 0)
-                  thisp->pimpl->materials[idx] = m->diffuseColor[0];
+              MaterialData& md = thisp->pimpl->materials[idx];
+              if (m->diffuseColor.getNum() > 0) {
+                  md.diffuse[0] = m->diffuseColor[0][0];
+                  md.diffuse[1] = m->diffuseColor[0][1];
+                  md.diffuse[2] = m->diffuseColor[0][2];
+              }
+              if (m->transparency.getNum() > 0) md.diffuse[3] = m->transparency[0];
+          }
+      }
+      else if (triggerNode->isOfType(SoDirectionalLight::getClassTypeId())) {
+          size_t idx;
+          if (thisp->pimpl->lightMap.get(triggerNode, idx)) {
+              SoDirectionalLight * l = (SoDirectionalLight *)triggerNode;
+              LightData& ld = thisp->pimpl->lights[idx];
+              ld.direction[0] = l->direction.getValue()[0];
+              ld.direction[1] = l->direction.getValue()[1];
+              ld.direction[2] = l->direction.getValue()[2];
+              ld.color[0] = l->color.getValue()[0];
+              ld.color[1] = l->color.getValue()[1];
+              ld.color[2] = l->color.getValue()[2];
+              ld.color[3] = l->on.getValue() ? 1.0f : 0.0f;
+              ld.position[3] = l->intensity.getValue();
           }
       }
       else if (triggerNode->isOfType(SoGroup::getClassTypeId())) {
@@ -206,10 +311,13 @@ PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)
           // to ensure indices correctly mirror the newly structured tree.
           thisp->pimpl->transforms.truncate(0);
           thisp->pimpl->materials.truncate(0);
+          thisp->pimpl->shapeMaterialMap.truncate(0);
+          thisp->pimpl->lights.truncate(0);
           thisp->pimpl->boundingBoxesMin.truncate(0);
           thisp->pimpl->boundingBoxesMax.truncate(0);
           thisp->pimpl->transformMap.clear();
           thisp->pimpl->materialMap.clear();
+          thisp->pimpl->lightMap.clear();
           thisp->pimpl->shapeMap.clear();
           
           traverseNodeInit(thisp->sceneroot, thisp->pimpl);

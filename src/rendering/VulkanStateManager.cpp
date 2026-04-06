@@ -42,6 +42,25 @@ void VulkanStateManager::allocateStorageBuffers(size_t numElements) {
         materialMemory
     );
 
+    VkDeviceSize mapSize = sizeof(uint32_t) * numElements;
+    vkBackend->createBuffer(
+        mapSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        shapeMaterialMapBuffer,
+        shapeMaterialMapMemory
+    );
+    
+    // We treat LightData as an SSBO as well to support large arrays generically.
+    VkDeviceSize lightSize = sizeof(LightData) * std::max((size_t)16, numElements);
+    vkBackend->createBuffer(
+        lightSize,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        lightUBO,
+        lightUBOMemory
+    );
+
     VkDeviceSize bboxSize = sizeof(BoundingBoxData) * numElements;
     vkBackend->createBuffer(
         bboxSize,
@@ -137,6 +156,18 @@ void VulkanStateManager::freeStorageBuffers() {
         vkFreeMemory(device, materialMemory, nullptr);
         materialBuffer = VK_NULL_HANDLE;
     }
+    
+    if (shapeMaterialMapBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, shapeMaterialMapBuffer, nullptr);
+        vkFreeMemory(device, shapeMaterialMapMemory, nullptr);
+        shapeMaterialMapBuffer = VK_NULL_HANDLE;
+    }
+    
+    if (lightUBO != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, lightUBO, nullptr);
+        vkFreeMemory(device, lightUBOMemory, nullptr);
+        lightUBO = VK_NULL_HANDLE;
+    }
 
     if (boundingBoxBuffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(device, boundingBoxBuffer, nullptr);
@@ -201,6 +232,24 @@ void VulkanStateManager::allocateStagingBuffers(size_t numElements) {
         stagingMaterialMemory
     );
 
+    VkDeviceSize mapSize = sizeof(uint32_t) * numElements;
+    vkBackend->createBuffer(
+        mapSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingShapeMaterialMapBuffer,
+        stagingShapeMaterialMapMemory
+    );
+    
+    VkDeviceSize lightSize = sizeof(LightData) * std::max((size_t)16, numElements);
+    vkBackend->createBuffer(
+        lightSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        stagingLightUBO,
+        stagingLightUBOMemory
+    );
+
     VkDeviceSize bboxSize = sizeof(BoundingBoxData) * numElements;
     vkBackend->createBuffer(
         bboxSize,
@@ -226,6 +275,18 @@ void VulkanStateManager::freeStagingBuffers() {
         vkFreeMemory(device, stagingMaterialMemory, nullptr);
         stagingMaterialBuffer = VK_NULL_HANDLE;
     }
+    
+    if (stagingShapeMaterialMapBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, stagingShapeMaterialMapBuffer, nullptr);
+        vkFreeMemory(device, stagingShapeMaterialMapMemory, nullptr);
+        stagingShapeMaterialMapBuffer = VK_NULL_HANDLE;
+    }
+    
+    if (stagingLightUBO != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, stagingLightUBO, nullptr);
+        vkFreeMemory(device, stagingLightUBOMemory, nullptr);
+        stagingLightUBO = VK_NULL_HANDLE;
+    }
 
     if (stagingBoundingBoxBuffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(device, stagingBoundingBoxBuffer, nullptr);
@@ -239,7 +300,10 @@ void VulkanStateManager::freeStagingBuffers() {
 void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
     size_t numTransforms = sceneManager->getNumTransforms();
     size_t numMaterials = sceneManager->getNumMaterials();
-    size_t maxElements = numTransforms > numMaterials ? numTransforms : numMaterials;
+    size_t numShapeMaps = sceneManager->getNumShapeMaterialIndices();
+    size_t numLights = sceneManager->getNumLights();
+    
+    size_t maxElements = std::max({numTransforms, numMaterials, numShapeMaps, numLights});
 
     if (maxElements == 0) return;
 
@@ -277,8 +341,8 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
         sceneManager->resetTransformDirtyRange();
     }
 
-    // 2. Map and Copy Materials (Naive for now)
-    if (numMaterials > 0) { // Should similarly implement material dirty ranges if implemented
+    // 2. Map and Copy Materials and ShapeMappings
+    if (numMaterials > 0) { 
         std::cout << "DEBUG: Map materials" << std::endl;
         const void* materialData = sceneManager->getMaterialData();
         void* mappedData;
@@ -291,6 +355,34 @@ void VulkanStateManager::upload(PersistentSceneManager* sceneManager) {
         VkBufferCopy copyRegion{};
         copyRegion.size = sizeof(MaterialData) * numMaterials;
         vkCmdCopyBuffer(cmdBuffer, stagingMaterialBuffer, materialBuffer, 1, &copyRegion);
+    }
+    
+    if (numShapeMaps > 0) {
+        const void* shapeMapData = sceneManager->getShapeMaterialIndices();
+        void* mappedData;
+        vkMapMemory(device, stagingShapeMaterialMapMemory, 0, sizeof(uint32_t) * numShapeMaps, 0, &mappedData);
+        memcpy(mappedData, shapeMapData, sizeof(uint32_t) * numShapeMaps);
+        vkUnmapMemory(device, stagingShapeMaterialMapMemory);
+
+        if (cmdBuffer == VK_NULL_HANDLE) cmdBuffer = vkBackend->beginSingleTimeCommands();
+
+        VkBufferCopy copyRegion{};
+        copyRegion.size = sizeof(uint32_t) * numShapeMaps;
+        vkCmdCopyBuffer(cmdBuffer, stagingShapeMaterialMapBuffer, shapeMaterialMapBuffer, 1, &copyRegion);
+    }
+    
+    if (numLights > 0) {
+        const void* lightData = sceneManager->getLightData();
+        void* mappedData;
+        vkMapMemory(device, stagingLightUBOMemory, 0, sizeof(LightData) * numLights, 0, &mappedData);
+        memcpy(mappedData, lightData, sizeof(LightData) * numLights);
+        vkUnmapMemory(device, stagingLightUBOMemory);
+
+        if (cmdBuffer == VK_NULL_HANDLE) cmdBuffer = vkBackend->beginSingleTimeCommands();
+
+        VkBufferCopy copyRegion{};
+        copyRegion.size = sizeof(LightData) * numLights;
+        vkCmdCopyBuffer(cmdBuffer, stagingLightUBO, lightUBO, 1, &copyRegion);
     }
 
     // 3. Map and Copy Bounding Boxes (Naive for now)
