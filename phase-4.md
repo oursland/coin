@@ -17,7 +17,7 @@ The goal of this phase is to execute the completed compute culling and multi-dra
 ## 3. Dynamic Rendering Pipeline
 - [x] Extract hardcoded `HEADLESS_WIDTH` out of `VulkanRenderer` to utilize the dynamic Swapchain Extent.
 - [ ] Ensure the MVP matrix is uploaded into the standard Uniform Descriptors array allowing Vertex transformation.
-- [ ] Configure `VK_DYNAMIC_STATE_VIEWPORT` and `VK_DYNAMIC_STATE_SCISSOR`.
+- [x] Configure `VK_DYNAMIC_STATE_VIEWPORT` and `VK_DYNAMIC_STATE_SCISSOR`.
 
 ## 4. Input & Interactive Frustum Engine
 - [ ] Intercept GLFW Mouse and Keyboard callbacks (`W A S D` and mouse looking).

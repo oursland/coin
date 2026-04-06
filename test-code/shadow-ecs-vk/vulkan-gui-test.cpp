@@ -41,13 +41,11 @@ int main() {
     VulkanRenderer renderer(&backend, &stateManager);
 
     std::cout << "Initializing Renderer for Swapchain..." << std::endl;
-    // We haven't compiled the shaders in build/ bin yet for test, so we pass empty for now just to test swapchain setup.
-    // Wait! The app will crash if shader paths are "none". I'll use real paths but we must ensure they compile.
-    // Let's defer renderer init to later if just testing swapchain integration.
-    
-    // For now we just prove swapchain compiles and runs
-    
-    std::cout << "Successfully generated " << backend.getSwapChainImageViews().size() << " Swapchain Images!" << std::endl;
+    // Provide absolute or relative paths to the compiled shaders in the build tree
+    renderer.init(backend.getSwapChainImageFormat(), backend.getSwapChainExtent(), "build/src/rendering/shaders/basic.vert.spv", "build/src/rendering/shaders/basic.frag.spv");
+    renderer.createFramebuffers(backend.getSwapChainImageViews());
+
+    std::cout << "Successfully generated " << backend.getSwapChainImageViews().size() << " Swapchain Images and Framebuffers!" << std::endl;
 
     for (int i = 0; i < 10; i++) {
         glfwPollEvents();
