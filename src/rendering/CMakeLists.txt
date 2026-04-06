@@ -15,6 +15,7 @@ set(COIN_RENDERING_FILES
 	SoVBO.cpp
 	SoVertexArrayIndexer.cpp
 	CoinOffscreenGLCanvas.cpp
+	ModernVulkanBackend.cpp
 )
 
 # Files excluded from public API documentation, included in complete documentation.
