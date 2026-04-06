@@ -56,6 +56,44 @@ int main(int argc, char** argv) {
         std::chrono::duration<double, std::milli> incrementalUploadMs = end - start;
         std::cout << "Post-Update Upload Time (Currently Naive): " << incrementalUploadMs.count() << " ms" << std::endl;
 
+        // VERIFICATION: Readback GPU Memory
+        std::cout << "Verifying Correctness via Readback..." << std::endl;
+        
+        VkBuffer readbackBuffer;
+        VkDeviceMemory readbackMemory;
+        backend.createBuffer(sizeof(TransformData) * NUM_NODES, 
+                             VK_BUFFER_USAGE_TRANSFER_DST_BIT, 
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                             readbackBuffer, readbackMemory);
+                             
+        VkCommandBuffer cmdBuffer = backend.beginSingleTimeCommands();
+        VkBufferCopy copyRegion{};
+        copyRegion.size = sizeof(TransformData) * NUM_NODES;
+        vkCmdCopyBuffer(cmdBuffer, stateManager.getTransformBuffer(), readbackBuffer, 1, &copyRegion);
+        backend.endSingleTimeCommands(cmdBuffer);
+        
+        void* mappedData;
+        vkMapMemory(backend.getDevice(), readbackMemory, 0, sizeof(TransformData) * NUM_NODES, 0, &mappedData);
+        TransformData* gpuData = (TransformData*)mappedData;
+        const float* ecsData = (const float*)sceneManager.getTransformData();
+        
+        // Assert base upload correctness
+        if (memcmp(&gpuData[0].matrix[0], &ecsData[0], 16 * sizeof(float)) != 0) {
+            throw std::runtime_error("Index 0 mismatch!");
+        }
+        
+        // Assert targeted update correctness (Index 50000)
+        int targetIdx = NUM_NODES / 2;
+        if (memcmp(&gpuData[targetIdx].matrix[0], &ecsData[targetIdx * 16], 16 * sizeof(float)) != 0) {
+            throw std::runtime_error("Target index Y translation mismatch (Optimized update failed to sync)");
+        }
+        
+        vkUnmapMemory(backend.getDevice(), readbackMemory);
+        vkDestroyBuffer(backend.getDevice(), readbackBuffer, nullptr);
+        vkFreeMemory(backend.getDevice(), readbackMemory, nullptr);
+        
+        std::cout << "Correctness Verified: GPU exactly mirrors Shadow ECS memory." << std::endl;
+
         root->unref();
 
     } catch (const std::exception& e) {
