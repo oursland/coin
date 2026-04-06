@@ -15,6 +15,12 @@ public:
   void setSceneGraph(SoNode * root);
   SoNode * getSceneGraph(void) const;
 
+  size_t getNumTransforms() const;
+  const void* getTransformData() const;
+
+  size_t getNumMaterials() const;
+  const void* getMaterialData() const;
+
 private:
   static void sensorCallback(void * data, SoSensor * sensor);
 

@@ -29,6 +29,12 @@ public:
     void allocateStorageBuffers(size_t numElements);
     void freeStorageBuffers();
 
+    void allocateStagingBuffers(size_t numElements);
+    void freeStagingBuffers();
+
+    class PersistentSceneManager* sceneManager;
+    void upload(const class PersistentSceneManager* sceneManager);
+
     VkBuffer getTransformBuffer() const { return transformBuffer; }
     VkBuffer getMaterialBuffer() const { return materialBuffer; }
     VkBuffer getBoundingBoxBuffer() const { return boundingBoxBuffer; }
@@ -44,8 +50,16 @@ private:
 
     VkBuffer boundingBoxBuffer = VK_NULL_HANDLE;
     VkDeviceMemory boundingBoxMemory = VK_NULL_HANDLE;
+
+    // Staging buffers mapping CPU-visible memory
+    VkBuffer stagingTransformBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingTransformMemory = VK_NULL_HANDLE;
+
+    VkBuffer stagingMaterialBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMaterialMemory = VK_NULL_HANDLE;
     
     size_t currentCapacity = 0;
+    size_t stagingCapacity = 0;
 };
 
 #endif // COIN_VULKANSTATEMANAGER_H

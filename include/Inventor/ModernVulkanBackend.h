@@ -15,21 +15,27 @@ public:
     void cleanup();
 
     VkInstance getInstance() const { return instance; }
-    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
     VkDevice getDevice() const { return device; }
+    VkQueue getGraphicsQueue() const { return graphicsQueue; }
+    VkCommandPool getCommandPool() const { return commandPool; }
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
+
+    VkCommandBuffer beginSingleTimeCommands() const;
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer) const;
 
 private:
     void createInstance();
     void pickPhysicalDevice();
     void createLogicalDevice();
+    void createCommandPool();
 
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
     
     // Extensions required for macOS MoltenVK Portability
     std::vector<const char*> getRequiredExtensions();

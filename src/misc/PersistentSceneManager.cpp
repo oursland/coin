@@ -111,6 +111,24 @@ PersistentSceneManager::getSceneGraph(void) const
   return this->sceneroot;
 }
 
+size_t PersistentSceneManager::getNumTransforms() const {
+    return this->pimpl->transforms.getLength();
+}
+
+const void* PersistentSceneManager::getTransformData() const {
+    if (this->pimpl->transforms.getLength() == 0) return nullptr;
+    return this->pimpl->transforms.getArrayPtr();
+}
+
+size_t PersistentSceneManager::getNumMaterials() const {
+    return this->pimpl->materials.getLength();
+}
+
+const void* PersistentSceneManager::getMaterialData() const {
+    if (this->pimpl->materials.getLength() == 0) return nullptr;
+    return this->pimpl->materials.getArrayPtr();
+}
+
 void
 PersistentSceneManager::sensorCallback(void * data, SoSensor * sensor)
 {

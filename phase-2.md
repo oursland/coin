@@ -16,9 +16,9 @@ This document contains the detailed breakdown of tasks for Phase 2 of the Coin3D
 - [x] Implement Vulkan Buffer allocation (`vkCreateBuffer`, `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT`) generating the device-local buffers for the structures above.
 
 ## 3. CPU to GPU Asynchronous Streaming
-- [ ] Hook into the pre-render pass or backend frame dispatcher.
-- [ ] Allocate a Staging Buffer (`VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`).
-- [ ] Perform `vkMapMemory` to copy modified contiguous ECS data from `PersistentSceneManager` into the staging buffer, and dispatch a `vkCmdCopyBuffer` to upload to the high-speed device-local Storage Buffers.
+- [x] Hook into the pre-render pass or backend frame dispatcher.
+- [x] Allocate a Staging Buffer (`VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`).
+- [x] Perform `vkMapMemory` to copy modified contiguous ECS data from `PersistentSceneManager` into the staging buffer, and dispatch a `vkCmdCopyBuffer` to upload to the high-speed device-local Storage Buffers.
 - [ ] Track "dirty" ranges inside the Shadow ECS to avoid re-uploading unchanged memory arrays (Optional Optimization).
 
 ## 4. Vulkan Compute Shader: View Frustum Culling
